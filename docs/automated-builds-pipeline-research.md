@@ -213,6 +213,27 @@ For **classification only** (carry/core/support), the LLM input per archetype wo
   `GameDataCardGridV2` extraction from an individual /builds article (3 sections, phase-annotated)
 - `bazaar-builds/research/samples/mobalytics/builds-listing.txt` — 5 SSR-visible build slugs
 
+### 2.1 2026-05-06 Schema Follow-Up
+
+The `/the-bazaar/guides/meta-builds` PRELOADED_STATE still stores the guide document at:
+
+```
+theBazaarState
+  .apollo.graphqlV2.queries[*]
+  .state.data[*]
+  .game.documents.userGeneratedDocumentBySlug.data
+```
+
+The query array now includes an unrelated `["ngf-banner-takeover"]` query before the document
+query, and both queries have trailing `null` rows in `state.data`. A path walker must skip
+non-document queries and non-object rows instead of treating the first malformed row as a missing
+document. The document query key observed on 2026-05-06 was
+`["ngf-ug-featured-document-page", "guides", "meta-builds", []]`.
+
+The change-detection field is still the document `version`; the live document was `version: 540`
+with `updatedAt: "2026-05-06T22:06:54Z"`. A compact live-shape regression sample was added at
+`bazaar-builds/research/samples/mobalytics/meta-builds-preloaded-state-builds-2026-05-06.json`.
+
 ### Recommended Ingestion Approach
 
 **HTTP client only** (no JS render needed). Suggested flow:
