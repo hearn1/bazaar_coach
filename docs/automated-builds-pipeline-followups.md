@@ -47,7 +47,7 @@ Completed and merged. A1 captured the live DOM/current-shape research; A2 restor
 
 The split lets A1 end with curator review of the research note before A2 commits to a parser shape. If A1 finds the page essentially unchanged and only Cloudflare detection improved, A1 + A2 can collapse into a single session — that decision is part of A1's deliverable.
 
-### B. Source Drift Defense — design pass (architecture-review finding [4]) — completed
+### B. Source Drift Defense — completed
 
 The 2026-05-05 dry run filed three fetcher bugs in a single run, ~24 hours after the source-shape probe. All three sources had drifted between probe and dry run. Today's tests are fixture-based and protect against parser regressions but not against source-side drift. **Session B landed the light design in `automated-builds-pipeline-design.md` §10.5.**
 
@@ -56,26 +56,26 @@ The 2026-05-05 dry run filed three fetcher bugs in a single run, ~24 hours after
 - Add `python -m automated_builds_pipeline.research.refresh_samples`: source-selectable, writes refreshed current-shape samples under `research/samples/<source>/`, supports local no-commit review, and avoids production stats/proposals/tracker catalogs/pipeline state.
 - Defer broad health-detail vocabulary cleanup; keep B' to workflow + command implementation unless implementation uncovers a narrow fetcher bug.
 
-**Recommended B' implementation session:** doc-to-code pass in `bazaar-builds` only. Implement `live-sources-smoke`, implement the refresh-samples research command, add focused tests around command flags/summary shape where practical, and do not run the live pipeline or change `pipeline_state.json`.
+**B' implementation completed and merged in `bazaar-builds`.** Implementation commit `fdb46d9` landed via merge commit `3734647`. It added the source-drift defense workflow/command surface without running the live pipeline or changing `pipeline_state.json`.
 
-### C. Noise-section UX in early-phase proposals (architecture-review finding [1])
+### C. Noise-section UX in early-phase proposals (architecture-review finding [1]) — completed
 
-Small implementation. The 2026-05-05 dry run produced 89 noise entries because `_initial_noise()` emits a per-item row for every catalog item flagged `not_enough_windows` when the stats sidecar is empty. Goals:
+Completed and merged in `bazaar-builds`. The 2026-05-05 dry run produced 89 noise entries because `_initial_noise()` emitted a per-item row for every catalog item flagged `not_enough_windows` when the stats sidecar was empty.
 
-- Filter `insufficient_history` rows out of `_initial_noise()` entirely.
-- For other deferred reasons, roll up to one summary line per `(threshold_reason, count)` rather than per-item.
-- Update tests in `tests/test_diff.py`.
-- Update `automated-builds-pipeline-design.md` §8 with a one-line noise-section note (this is an UX clarification, not a design change).
+- `insufficient_history` rows are filtered out of `_initial_noise()` entirely.
+- Other deferred reasons roll up to one summary line per `(threshold_reason, count)` rather than per-item.
+- Tests were updated in `tests/test_diff.py`.
+- `automated-builds-pipeline-design.md` §8 was updated with a one-line noise-section note (an UX clarification, not a design change).
 
-Self-contained. Can land any time after A2 or in parallel.
+Implementation commit `f5ee53d` landed via merge commit `39b1eeb`; the tracker design-doc update landed at `a2fac53`.
 
-### D. Small cleanups (architecture-review findings [2], [5], [6])
+### D. Small cleanups (architecture-review findings [2], [5], [6]) — completed
 
-Trivial, fold opportunistically into whichever session next touches the affected file:
+Completed and merged in `bazaar-builds`. Implementation commit `7024eae` landed via merge commit `c1f0552`.
 
-- **[2] Composite `window_id` ugliness.** `diff.py:_window_id()` joins every `source_health` window_id including `<source>:unknown` placeholders, producing strings like `bazaardb:2026-W19+bazaardb:unknown+mobalytics_meta_builds:unknown`. Drop unhealthy/unknown entries from the composite; fall back to `evaluation.run_id` if only those are left.
-- **[5] Reshuffle slot reserved-but-unused.** `proposed_changes.archetype_reshuffles` is in the diff schema but never populated — reshuffle signal goes to noise as `reshuffle_deferred`. Per design §8 unresolved this is acceptable for v1. Add a one-line code comment so the next reviewer doesn't hunt for the populating code.
-- **[6] Duplicate catalog walkers.** `_catalog_index()` in `diff.py` and `iter_catalog_items()` in `evaluator.py` independently re-walk the catalog with the same schema-awareness logic. Not a bug; collapse into a shared helper only if a third walker appears.
+- **[2] Composite `window_id` cleanup landed.** `diff.py:_window_id()` now drops unhealthy/unknown entries from the composite and falls back to `evaluation.run_id` if only those are left.
+- **[5] Reshuffle reserved-slot comment landed.** `proposed_changes.archetype_reshuffles` remains reserved-but-unused for v1; reshuffle signal still goes to noise as `reshuffle_deferred` per design §8.
+- **[6] Duplicate catalog walkers intentionally deferred.** `_catalog_index()` in `diff.py` and `iter_catalog_items()` in `evaluator.py` still independently re-walk the catalog with the same schema-awareness logic. This remains acceptable unless a third walker appears.
 
 ### E. Deferred — subtask 7 broader review tooling
 
@@ -89,12 +89,12 @@ Findings surfaced during the 2026-05-06 review of the dry run. Numbering matches
 
 | # | Finding | Status |
 |---|---|---|
-| 1 | Noise overflow in early-phase proposals (89 entries from `not_enough_windows`). | Open — Session C above. |
-| 2 | `bazaardb:unknown` leaks into composite `window_id`. | Open — Session D above. |
+| 1 | Noise overflow in early-phase proposals (89 entries from `not_enough_windows`). | **Resolved** in `bazaar-builds` merge commit `39b1eeb` (implementation `f5ee53d`) and tracker design-doc commit `a2fac53`. |
+| 2 | `bazaardb:unknown` leaks into composite `window_id`. | **Resolved** in `bazaar-builds` merge commit `c1f0552` (implementation `7024eae`). |
 | 3 | `document_version_missing` overloaded both "schema path moved" and "version field missing". | **Resolved** in PR `bazaar-builds#6`. Detail split into `document_path_missing` vs `document_version_missing`. |
-| 4 | Research-time vs production-time shape drift is the dominant fragility. | Design complete — implement Session B' above. |
-| 5 | Reshuffle slot is reserved-but-unused; signal goes to noise. | Open — Session D above. Acceptable for v1 per design §8 unresolved. |
-| 6 | Catalog-walker logic duplicated across `diff.py` and `evaluator.py`. | Open — Session D above. Low-priority cleanup. |
+| 4 | Research-time vs production-time shape drift is the dominant fragility. | **Resolved** in `bazaar-builds` merge commit `3734647` (implementation `fdb46d9`). |
+| 5 | Reshuffle slot is reserved-but-unused; signal goes to noise. | **Resolved** in `bazaar-builds` merge commit `c1f0552` (implementation `7024eae`) with an explanatory code comment; reserved slot remains acceptable for v1 per design §8 unresolved. |
+| 6 | Catalog-walker logic duplicated across `diff.py` and `evaluator.py`. | Deferred intentionally; collapse into a shared helper only if a third walker appears. |
 | 7 | No locked-design contradictions found between implementation and design doc / subtask 1 spec. | Confirmed — no action. |
 
 Full review notes are preserved in the 2026-05-06 chat transcript that produced this document; the actionable subset is the table above plus §2.
@@ -105,9 +105,6 @@ Full review notes are preserved in the 2026-05-06 chat transcript that produced 
 
 These need a curator answer before the next implementation pass:
 
-- **Session B' timing**: launch the implementation pass for `live-sources-smoke` + `refresh_samples` before or alongside Session C. Recommendation: B' next, because it protects the now-fixed fetchers before more cron-adjacent work accumulates.
-- **Issue creation for smoke failures**: red workflow + uploaded artifact is the pinned first implementation. Curator decision needed only if B' should also open/update a GitHub Issue for required-source failures.
-- **Session C timing**: land standalone. Recommendation: keep proposal-noise UX cleanup separate from B' source-drift implementation.
 - **Subtask 7 (review tooling)**: defer indefinitely, or schedule a design pass once shadow_cron has run for ~4 windows and the curator can describe what the PR-comment template is missing? Recommendation: defer until shadow_cron starts producing real data.
 
 ---
