@@ -64,6 +64,78 @@ The rendered page at probe time: 20,099 total runs, 9.05 avg wins. First archety
 core items Flying Potion + Boiling Flask + Atmospheric Sampler (510 runs, 9.7 avg wins), with
 supporting items Caustic Solvent (176 runs · 35%), Vitality Potion (106 · 21%), etc.
 
+### 1.1 2026-05-06 Shape Follow-Up
+
+Issue #2 is not caused by a full page redesign. A visible Chrome/DevTools session against both the requested
+`https://www.bazaardb.gg/run/meta` URL and the fetcher-canonical `https://bazaardb.gg/run/meta`
+cleared Cloudflare and rendered the real page. The `www` URL canonicalized to the non-`www`
+host. Real-page landmarks observed:
+
+- `<title>Meta Stats - Bazaar DB</title>`
+- visible `Meta Stats` heading
+- total/average summary (`205 TOTAL RUNS`, `9.01 AVG WINS` during the capture)
+- `Updated 22m ago`
+- explanatory copy: "These meta stats are based on data uploaded by the community for the most
+  recent numbered patch."
+- `Archetypes`, `Heroes`, `Items`, and `Skills` page sections
+- footer identity: `Database based on patch 14.0 (May 6)`
+
+The old archetype section concepts still exist. In the DOM text nodes they appear as title case
+(`Core Items`, `Supporting Items`, `Popular Skills`); `document.body.innerText` still shows the
+uppercase section lines. A2 should still make the landmark wait more tolerant, but the visible
+browser capture proves the old `CORE ITEMS` concept is present on the real page.
+
+A headless Chrome control capture against the same URL did not reach the real page during the
+probe window. It stayed on a Cloudflare "Performing security verification" page with title
+`Just a moment...`, no `Meta Stats`, and no `Core Items`/`CORE ITEMS` text. That makes issue #2
+primarily Cloudflare/headless-detection work, with a small parser update for the patch-label shape.
+
+Patch identity changed from the prior `Apr 29` top-nav label shape. The top-nav patch-notes link
+currently displays a relative freshness label (`4h ago`) and points to `/patchnotes`. The durable
+patch label visible in the rendered page is in the footer as `14.0 (May 6)`. Under the locked
+subtask-1 contract, A2 should probably prefer the footer patch label for `bazaardb_patch_label`
+and retain `/patchnotes` as `bazaardb_patch_notes_url` when present, rather than treating the
+relative top-nav text as the patch window id.
+
+The archetype grouping structure remains viable:
+
+- each group starts with `Core Items`
+- one or more core item card links follow; each card still exposes `img[alt]`
+- the core group then has a run-count link shaped like `8RUNS ->` (rendered compactly, no space)
+  and an adjacent average-wins text like `10.0AVG WINS`
+- `Supporting Items` contains flex subsections such as `Flex (small)`, `Flex (medium)`, and
+  `Flex (large)`
+- supporting rows are item-name lines followed by run/frequency link text shaped like
+  `6 runs · 75%`
+- `Popular Skills` follows the same run/frequency text shape for skills
+
+The relationship between item-card `img[alt]` nodes and archetype context is still local DOM/text
+order. Core item `img[alt]` nodes precede the core-group `/run?cards=<core card ids>` link.
+Supporting item `img[alt]` nodes precede `/run?cards=<core card ids>,<support item id>` links,
+so the link target itself encodes the core-context card ids plus the candidate item id. This is
+stronger than relying on hashed CSS classes.
+
+Hero filtering did not remain viable as an in-place `/run/meta` filter in this probe. Clicking the
+hidden global `Karnok` filter option navigated the tab to `/search?t=t%3Akarnok&c=all` instead of
+filtering the meta page. No stable hero-specific meta URL was observed. The unfiltered-page then
+post-hoc hero filter remains the practical route for A2, using known hero item pools/catalog
+context to retain matching rows.
+
+Refreshed current-shape artifacts:
+
+- `bazaar-builds/research/samples/bazaardb/meta-rendered-text-2026-05-06.txt`
+- `bazaar-builds/research/samples/bazaardb/meta-rendered-dom-2026-05-06.html`
+- `bazaar-builds/research/samples/bazaardb/meta-shape-notes-2026-05-06.json`
+- `bazaar-builds/research/samples/bazaardb/meta-current-shape-summary-2026-05-06.json`
+- `bazaar-builds/research/samples/bazaardb/meta-karnok-filter-attempt-2026-05-06.json`
+- `bazaar-builds/research/samples/bazaardb/meta-headless-control-2026-05-06.json`
+
+Decision: bazaardb is still viable as the canonical statistical source under the locked design.
+A2 is not a large source-redesign parser rewrite; it is mostly browser/Cloudflare handling plus
+patch-label extraction adjustment and a more tolerant real-page landmark. This does not require a
+curator source-viability decision unless A2 wants to change the locked fallback strategy away from
+unfiltered-page post-hoc hero filtering.
+
 ### Recommended Ingestion Approach
 
 **HTTP + JS render (headless browser required)** — Playwright or Puppeteer, not a plain HTTP
