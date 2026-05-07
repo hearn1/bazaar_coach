@@ -429,6 +429,37 @@ bazaardb is patch-scoped with no archive. There's no source to bootstrap from. (
 - **Phase 2 duration**: "≥6 patches OR ≥6 weeks" is a guess. If patch cadence is rapid (3-day patches during a meta turbulence period), 6 patches may be too short to feel confident. Subtask 1 should pick a calendar-floor lower bound (e.g., "≥6 patches AND ≥45 days").
 - **What "would have been proposed" means in shadow mode**: the workflow uploads the diff JSON as a build artifact. Curator either downloads it from the workflow run or the workflow comments the proposal markdown on a long-running tracking issue. Lean tracking issue — easier to scan in a browser. Pin in subtask 4.
 
+### 10.5 Source Drift Defense
+
+**Decision: add a small source-drift defense layer alongside the phased rollout, without changing proposal thresholds, stats persistence, PR mechanics, or phase promotion.** Source shape drift is now the highest-friction failure mode: fixture tests catch parser regressions, but they do not show when a live source has changed since the last probe. The defense layer has two additive surfaces.
+
+**`live-sources-smoke` workflow.** Add a separate GitHub Actions workflow in `bazaar-builds` with a weekly cron and `workflow_dispatch`. It fetches each live source and runs only the source health checks from the subtask 1 contract. It must not run threshold evaluation, LLM classification, tracker PR creation, stats mutation, proposal rendering, or pipeline phase promotion. It ignores `pipeline_state.json` phase except for optional read-only patch-label expectations; `phase: implementation` remains the main pipeline off switch, not a reason to skip source smoke.
+
+The smoke job should emit one structured JSON summary artifact per run with:
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-06T12:00:00Z",
+  "sources": [
+    {"source": "bazaardb", "status": "healthy", "window_id": "bazaardb:14.0 (May 6)", "details": []},
+    {"source": "mobalytics_meta_builds", "status": "healthy", "window_id": "mobalytics_meta_builds:v540", "details": []},
+    {"source": "mobalytics_build_articles", "status": "skipped", "window_id": "mobalytics_build_articles:skipped", "details": ["no_article_slugs_configured"]},
+    {"source": "bazaar_builds_net", "status": "healthy", "window_id": "bazaar_builds_net:2026-W19", "details": []}
+  ]
+}
+```
+
+Failure policy: upload the artifact on every run and make the workflow red when any required source is `unhealthy`. A `skipped` `mobalytics_build_articles` row is green when no article slugs are configured, because that sub-source is optional by design and contributes no presence or absence evidence. The first B' implementation can stop at red workflow + artifact; issue creation is optional and should be added only if the curator wants GitHub Issues as the drift queue. This avoids a new notification surface until there is a real need.
+
+For bazaardb, the smoke workflow must use the same runtime assumptions as production fetches: install Playwright Chromium with system deps and run the fetch under `xvfb-run` so the headed fallback can execute when headless Chrome remains on the Cloudflare challenge. A smoke failure caused by `cloudflare_challenge_not_cleared`, `content_landmark_missing`, `patch_label_missing`, `zero_item_archetype_groups`, or `run_frequency_context_missing` is treated as source drift or fetch-environment drift; it is red but must not mutate stats or count as an absence window.
+
+**`python -m automated_builds_pipeline.research.refresh_samples` command.** Add a research command that re-fetches current source-shape samples for curator review and writes them under `research/samples/<source>/`. It supports `--source` selection with repeatable values such as `bazaardb`, `mobalytics_meta_builds`, `mobalytics_build_articles`, and `bazaar_builds_net`; default is all configured live sources. It supports a no-commit local review path: write files, print the exact paths changed, and leave git staging/commit decisions to the curator.
+
+The command must not touch production stats, proposal artifacts, tracker catalogs, tracker PR branches, or `pipeline_state.json`. Its output should include enough structured summary to make source-shape diffs reviewable without opening every raw artifact: source URL, fetch method, status/details, window/version/patch identity, count of parsed rows/items/archetypes, key DOM or JSON landmarks found, and sample file paths. For bazaardb it should capture rendered text/HTML plus a compact shape summary. For Mobalytics it should capture the compact PRELOADED_STATE-derived build/article shape rather than committing full raw HTML by default. For bazaar-builds.net it should capture category/post summaries that prove date filtering and item extraction shape.
+
+**Explicitly deferred:** broad health-detail vocabulary cleanup across all fetchers; parser implementation changes; any live phase flip; proposal noise UX cleanup; and Subtask 7 review-tooling design. B' should implement only the smoke workflow and sample-refresh command unless source drift observed during that work forces a narrow fetcher bug fix.
+
 ---
 
 ## 11. Subtask Boundaries

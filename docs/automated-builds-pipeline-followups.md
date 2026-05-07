@@ -11,9 +11,9 @@
 | Subtasks 1–7 (design + implementation) | All merged. ROADMAP entry remains Open pending curator flip out of `phase: implementation`. |
 | Issue #4 — bazaar-builds.net fetcher date health | **Closed.** PR `bazaar-builds#5`. Untracked record-creation paths bypassing the date filter were fixed; tests added; live fetch healthy. |
 | Issue #3 — Mobalytics `document_version_missing` | **Closed.** PR `bazaar-builds#6`. Path walker now tolerates unrelated queries and null rows; diagnostic detail split into `document_path_missing` vs `document_version_missing`; live shape sample committed at `bazaar-builds/research/samples/mobalytics/meta-builds-preloaded-state-builds-2026-05-06.json`; live fetch healthy at `mobalytics_meta_builds:v540`. |
-| Issue #2 — bazaardb `content_landmark_missing` | **Open.** Unhealthy after Cloudflare clears; landmark `text=CORE ITEMS` not found. Suspected page redesign; needs live-DOM inspection. |
-| Pipeline phase | `implementation` (cron does nothing). Will not promote to `local_dry_run` / `shadow_cron` / `live_cron` until issue #2 closes and the curator manually flips. |
-| Healthy sources today | bazaar-builds.net, mobalytics_meta_builds. (mobalytics_build_articles is `skipped` until article slugs are configured.) |
+| Issue #2 — bazaardb `content_landmark_missing` / core-item evidence | **Closed.** A1 research confirmed the source remains viable; A2 restored the fetcher; follow-up `5367e7d` included bazaardb core-item evidence and merged via `bazaar-builds` merge commit `ddd5277`. |
+| Pipeline phase | `implementation` (cron does nothing). Will not promote to `local_dry_run` / `shadow_cron` / `live_cron` until the curator manually flips. |
+| Healthy sources today | bazaar-builds.net, mobalytics_meta_builds, bazaardb. (mobalytics_build_articles is `skipped` until article slugs are configured.) |
 
 The 2026-05-06 dry run also surfaced a set of architecture-review findings beyond the three fetcher bugs. They are catalogued in §3 below and slotted into sessions in §2.
 
@@ -23,9 +23,9 @@ The 2026-05-06 dry run also surfaced a set of architecture-review findings beyon
 
 Sessions are listed in recommended order. Each is self-contained for a fresh Sonnet/Opus session.
 
-### A. bazaardb fetcher restoration — split into research + implementation
+### A. bazaardb fetcher restoration — completed
 
-The single ROADMAP-style issue #2 covers what is in practice two distinct kinds of work. Treating them as one session conflates an open-ended "what shape is the live page now?" investigation with a closed-ended "rewrite the parser to match." Splitting:
+Completed and merged. A1 captured the live DOM/current-shape research; A2 restored the fetcher; the A2 follow-up fixed core-item evidence. The historical split below is preserved for provenance:
 
 **A1 — Research session (browser-driven, no code).** Goals:
 
@@ -47,17 +47,16 @@ The single ROADMAP-style issue #2 covers what is in practice two distinct kinds 
 
 The split lets A1 end with curator review of the research note before A2 commits to a parser shape. If A1 finds the page essentially unchanged and only Cloudflare detection improved, A1 + A2 can collapse into a single session — that decision is part of A1's deliverable.
 
-### B. Source Drift Defense — design pass (architecture-review finding [4])
+### B. Source Drift Defense — design pass (architecture-review finding [4]) — completed
 
-The 2026-05-05 dry run filed three fetcher bugs in a single run, ~24 hours after the source-shape probe. All three sources had drifted between probe and dry run. Today's tests are fixture-based and protect against parser regressions but not against source-side drift. Goals of this session:
+The 2026-05-05 dry run filed three fetcher bugs in a single run, ~24 hours after the source-shape probe. All three sources had drifted between probe and dry run. Today's tests are fixture-based and protect against parser regressions but not against source-side drift. **Session B landed the light design in `automated-builds-pipeline-design.md` §10.5.**
 
-- Decide whether to add a separate `live-sources-smoke` workflow (weekly cron, hits each live source, runs only the fetcher + health check, opens an issue or fails loudly when health flips healthy → unhealthy).
-- Decide whether to add a `python -m automated_builds_pipeline.research.refresh_samples` script that re-fetches each source's research sample so the curator can periodically review the diff.
-- Decide whether to standardize health-detail vocabulary across fetchers (some details today conflate "schema unrecognized" with "data legitimately empty"; the issue #3 fix split one such case but others remain — see finding [3] in §3).
-- Output: a §10.5 "Source Drift Defense" addition to `automated-builds-pipeline-design.md`, or, if scope grows, its own design doc. No implementation in this session.
-- Implementation can follow as B' once design lands.
+- Add a separate `live-sources-smoke` workflow: weekly cron plus manual dispatch, required sources go red on `unhealthy`, every run uploads a structured source-health artifact, and `mobalytics_build_articles:skipped` remains green when no article slugs are configured.
+- Reuse the production bazaardb runtime expectations in smoke: Playwright Chromium installed with deps and `xvfb-run` available for headed fallback when headless is stuck on the Cloudflare challenge.
+- Add `python -m automated_builds_pipeline.research.refresh_samples`: source-selectable, writes refreshed current-shape samples under `research/samples/<source>/`, supports local no-commit review, and avoids production stats/proposals/tracker catalogs/pipeline state.
+- Defer broad health-detail vocabulary cleanup; keep B' to workflow + command implementation unless implementation uncovers a narrow fetcher bug.
 
-This session is **design-only** and does not block A. It can run in parallel with A1 if the curator wants.
+**Recommended B' implementation session:** doc-to-code pass in `bazaar-builds` only. Implement `live-sources-smoke`, implement the refresh-samples research command, add focused tests around command flags/summary shape where practical, and do not run the live pipeline or change `pipeline_state.json`.
 
 ### C. Noise-section UX in early-phase proposals (architecture-review finding [1])
 
@@ -93,7 +92,7 @@ Findings surfaced during the 2026-05-06 review of the dry run. Numbering matches
 | 1 | Noise overflow in early-phase proposals (89 entries from `not_enough_windows`). | Open — Session C above. |
 | 2 | `bazaardb:unknown` leaks into composite `window_id`. | Open — Session D above. |
 | 3 | `document_version_missing` overloaded both "schema path moved" and "version field missing". | **Resolved** in PR `bazaar-builds#6`. Detail split into `document_path_missing` vs `document_version_missing`. |
-| 4 | Research-time vs production-time shape drift is the dominant fragility. | Open — Session B above. |
+| 4 | Research-time vs production-time shape drift is the dominant fragility. | Design complete — implement Session B' above. |
 | 5 | Reshuffle slot is reserved-but-unused; signal goes to noise. | Open — Session D above. Acceptable for v1 per design §8 unresolved. |
 | 6 | Catalog-walker logic duplicated across `diff.py` and `evaluator.py`. | Open — Session D above. Low-priority cleanup. |
 | 7 | No locked-design contradictions found between implementation and design doc / subtask 1 spec. | Confirmed — no action. |
@@ -106,9 +105,9 @@ Full review notes are preserved in the 2026-05-06 chat transcript that produced 
 
 These need a curator answer before the next implementation pass:
 
-- **Order**: launch session A1 (bazaardb research) first, B (source drift defense design) first, or in parallel? Recommendation: A1 first, B in parallel if a second session can run concurrently.
-- **Session B scope**: light (smoke-check workflow + sample-refresh script only) or heavy (also revisit health-detail vocabulary across all fetchers, possibly splitting `automated-builds-pipeline-design.md` §10 into rollout-vs-defense)? Recommendation: light first, defer the vocabulary pass until issue #2 closes so any new bazaardb details land first.
-- **Session C timing**: fold into A2's PR or land standalone? Recommendation: standalone — keeps the bazaardb PR focused on fetcher logic.
+- **Session B' timing**: launch the implementation pass for `live-sources-smoke` + `refresh_samples` before or alongside Session C. Recommendation: B' next, because it protects the now-fixed fetchers before more cron-adjacent work accumulates.
+- **Issue creation for smoke failures**: red workflow + uploaded artifact is the pinned first implementation. Curator decision needed only if B' should also open/update a GitHub Issue for required-source failures.
+- **Session C timing**: land standalone. Recommendation: keep proposal-noise UX cleanup separate from B' source-drift implementation.
 - **Subtask 7 (review tooling)**: defer indefinitely, or schedule a design pass once shadow_cron has run for ~4 windows and the curator can describe what the PR-comment template is missing? Recommendation: defer until shadow_cron starts producing real data.
 
 ---
@@ -116,4 +115,4 @@ These need a curator answer before the next implementation pass:
 ## 5. Operational Caveats
 
 - **`anthropic` package missing in local venv**: end-to-end local dry runs that exercise the LLM step will halt at diff generation. The GitHub Actions runner installs deps fresh, so cron is unaffected. `pip install anthropic` in the local venv to enable full local coverage.
-- **Pipeline phase remains `implementation`**: the workflow exits without action on its weekly cron. The curator flips to `local_dry_run` for ad-hoc verification, then to `shadow_cron` once issue #2 closes. Promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).
+- **Pipeline phase remains `implementation`**: the workflow exits without action on its weekly cron. Even with issue #2 closed, the curator must manually flip to `local_dry_run` for ad-hoc verification, then to `shadow_cron`. Promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).
