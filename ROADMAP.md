@@ -89,6 +89,16 @@ Suggested subtasks (each its own session). Renumbered 2026-05-05 from 5 to 7 —
 6. **GitHub Actions workflow** — cron, runs the fetchers + evaluator + diff generator, opens or updates a single rolling PR per hero with the changes plus a human-readable summary.
 7. **Review tooling** — small dashboard or PR-comment template that surfaces the supporting stats for each proposed add/remove so the reviewer doesn't have to dig.
 
+LLM classifier follow-up:
+- Handle this in a separate session after the current GitHub Actions validation path is stable.
+- ChatGPT Plus/Pro subscriptions do not provide reusable OpenAI API billing for GitHub Actions. OpenAI API usage requires separate API billing or credits and should be rechecked against current official pricing/model docs at implementation time.
+- Short-term recommendation: add a deterministic/no-LLM classification mode so dry runs and CI are not blocked by provider billing or secrets. Preserve existing catalog buckets, classify new secondary-only items as `support` or `classification_pending`, and surface uncertain role decisions for curator review.
+- Use bazaardb `CORE ITEMS` / `SUPPORTING ITEMS` section metadata only after hero/source scoping has been validated as safe.
+- Keep the classifier provider pluggable: `deterministic`, existing Anthropic/Claude wiring, a Gemini API option to investigate for low-volume hosted classification, and a later OpenAI API option if separate billing is acceptable.
+- Gemini API free tier is the first hosted fallback to evaluate for roughly five small classification calls per week. Verify current free quota, rate limits, data-use terms, model names, billing rules, and structured JSON reliability at implementation time.
+- Local/open-weight models remain possible, but are probably too heavy or brittle for GitHub-hosted Actions at this expected volume.
+- Waiting for Anthropic credits has the least implementation churn if existing Claude wiring is otherwise healthy, but it does not unblock unpaid/local dry-run operation.
+
 How to test (per subtask):
 - Signal design: dry-run against historical artifacts and confirm the proposed deltas match what the curator would have done by hand.
 - Workflow: trigger the action manually on a fork; confirm a PR appears, contains a sane diff, and CI passes.
