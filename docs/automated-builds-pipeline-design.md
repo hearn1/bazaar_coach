@@ -321,6 +321,7 @@ Diff JSON shape (finalize in subtask 3):
 ```
 
 The proposal markdown renders sections directly from this JSON — same headings as today's `compare` output (`## Existing Archetype Updates`, `## New Archetype Candidates`, `## Noise / No Evidence`) plus a new `## Removal Candidates` section and a `## Pipeline State` header (window range, freeze state, source link to the scrape artifact in bazaar-builds).
+Initial insufficient-history rows are suppressed from proposal noise, and other deferred threshold reasons may be summarized by reason/count instead of emitted one row per item.
 
 **Why wrap rather than replace the proposal markdown:** the existing format is what the curator already knows how to review. Removing it forces a workflow change on top of an automation change. Wrapping means the proposal markdown grows new sections additively; a curator who only reads the first two sections still gets the same info as today.
 
