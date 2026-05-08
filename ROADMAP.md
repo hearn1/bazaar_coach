@@ -63,7 +63,7 @@ How to test:
 
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".
 
-Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. The GitHub Actions cron schedule already exists, so scheduled and manual `local_dry_run` runs may fetch sources, evaluate, write diff/proposal artifacts, and upload review artifacts, but they do not save or commit stats sidecars and do not mutate tracker catalogs. `shadow_cron` and `live_cron` remain disabled until explicit manual phase gates are passed.
+Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. The GitHub Actions cron schedule already exists, so scheduled and manual `local_dry_run` runs may fetch sources, evaluate, write diff/proposal artifacts, and upload review artifacts, but they do not save or commit stats sidecars and do not mutate tracker catalogs. `shadow_cron` remains disabled until the LLM/no-LLM/provider strategy for classifier usage is resolved or explicitly waived and the scheduled Actions/stats-sidecar acceptance gates are passed. `live_cron` remains disabled until a later manual gate with accumulated healthy shadow history.
 
 Promotion evidence:
 - Python 3.12.10 temporary environment used.
@@ -74,19 +74,20 @@ Promotion evidence:
 - Mock-mode proposals are operational validation only, not catalog-acceptance evidence. Support-only classifications, low confidence, duplicate/near-duplicate proposals, and missing evidence refs/sample counts remain normal curator review items rather than pipeline failures.
 
 LLM classifier follow-up:
-- Handle this in a separate session after the current GitHub Actions validation path is stable.
+- Handle this before any `shadow_cron` promotion unless the operator explicitly waives the prerequisite with the risk recorded.
 - ChatGPT Plus/Pro subscriptions do not provide reusable OpenAI API billing for GitHub Actions. OpenAI API usage requires separate API billing or credits and should be rechecked against current official pricing/model docs at implementation time.
+- Decide the classifier strategy: deterministic/no-LLM, existing Anthropic/Claude wiring, an alternate provider such as Gemini or another free/lower-cost provider, provider abstraction before hosted usage, or an explicit operator waiver for `shadow_cron`.
 - Short-term recommendation: add a deterministic/no-LLM classification mode so dry runs and CI are not blocked by provider billing or secrets. Preserve existing catalog buckets, classify new secondary-only items as `support` or `classification_pending`, and surface uncertain role decisions for curator review.
 - Use bazaardb `CORE ITEMS` / `SUPPORTING ITEMS` section metadata only after hero/source scoping has been validated as safe.
-- Keep the classifier provider pluggable: `deterministic`, existing Anthropic/Claude wiring, a Gemini API option to investigate for low-volume hosted classification, and a later OpenAI API option if separate billing is acceptable.
-- Gemini API free tier is the first hosted fallback to evaluate for roughly five small classification calls per week. Verify current free quota, rate limits, data-use terms, model names, billing rules, and structured JSON reliability at implementation time.
+- Keep the classifier provider pluggable: `deterministic`, existing Anthropic/Claude wiring, an alternate hosted option such as Gemini to investigate for low-volume classification, and a later OpenAI API option if separate billing is acceptable.
+- If Gemini or another free/lower-cost hosted provider is evaluated, verify current free quota, rate limits, data-use terms, model names, billing rules, and structured JSON reliability at implementation time. No alternate provider is selected yet.
 - Local/open-weight models remain possible, but are probably too heavy or brittle for GitHub-hosted Actions at this expected volume.
 - Waiting for Anthropic credits has the least implementation churn if existing Claude wiring is otherwise healthy, but it does not unblock unpaid/local dry-run operation.
 
 How to test:
 - Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation. Remember that scheduled workflow runs default to the real classifier because `--mock-llm` is only supplied by manual dispatch input or by changing the workflow/code.
-- Shadow readiness: review all-hero local dry-run artifacts, confirm required source-health fields are clear, confirm no checked-in mutation during local dry runs, accept that `shadow_cron` writes and commits stats sidecars in bazaar-builds while still avoiding tracker PR/catalog mutation, and keep a documented rollback path to `local_dry_run` or `implementation`.
-- Before flipping to `shadow_cron`: confirm the Actions schedule on `main` is intended; confirm Claude secret/API/cost readiness; confirm stats sidecar commits are accepted; perform or explicitly waive real-LLM validation; confirm the rollback path.
+- Shadow readiness: review all-hero local dry-run artifacts, confirm required source-health fields are clear, confirm no checked-in mutation during local dry runs, resolve or explicitly waive the classifier strategy prerequisite, accept that `shadow_cron` writes and commits stats sidecars in bazaar-builds while still avoiding tracker PR/catalog mutation, and keep a documented rollback path to `local_dry_run` or `implementation`.
+- Before flipping to `shadow_cron`: confirm the Actions schedule on `main` is intended; decide deterministic/no-LLM, Claude, an alternate provider such as Gemini or another free/lower-cost provider, provider abstraction first, or an explicit operator waiver; confirm any required secret/API/cost readiness; confirm stats sidecar commits are accepted; validate the chosen classifier strategy from the workflow path or explicitly waive validation; confirm the rollback path.
 - Live readiness: require at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output before enabling rolling tracker PRs.
 
 ### Build Archetype Images - Open
