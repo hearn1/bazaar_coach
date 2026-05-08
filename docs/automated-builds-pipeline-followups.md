@@ -11,7 +11,7 @@
 | Subtasks 1–7 (design + implementation) | All merged. ROADMAP entry remains Open pending curator flip out of `phase: implementation`. |
 | Issue #4 — bazaar-builds.net fetcher date health | **Closed.** PR `bazaar-builds#5`. Untracked record-creation paths bypassing the date filter were fixed; tests added; live fetch healthy. |
 | Issue #3 — Mobalytics `document_version_missing` | **Closed.** PR `bazaar-builds#6`. Path walker now tolerates unrelated queries and null rows; diagnostic detail split into `document_path_missing` vs `document_version_missing`; live shape sample committed at `bazaar-builds/research/samples/mobalytics/meta-builds-preloaded-state-builds-2026-05-06.json`; live fetch healthy at `mobalytics_meta_builds:v540`. |
-| Issue #2 — bazaardb `content_landmark_missing` / core-item evidence | **Closed.** A1 research confirmed the source remains viable; A2 restored the fetcher; follow-up `5367e7d` included bazaardb core-item evidence and merged via `bazaar-builds` merge commit `ddd5277`. |
+| Issue #2 — bazaardb `content_landmark_missing` / core-item evidence | **Open.** A1 research confirmed the source remains viable; A2 restored the fetcher; follow-up `5367e7d` included bazaardb core-item evidence and merged via `bazaar-builds` merge commit `ddd5277`, but the GitHub issue remains open. |
 | Pipeline phase | `implementation` (cron does nothing). Will not promote to `local_dry_run` / `shadow_cron` / `live_cron` until the curator manually flips. |
 | Healthy sources today | bazaar-builds.net, mobalytics_meta_builds, bazaardb. (mobalytics_build_articles is `skipped` until article slugs are configured.) |
 
@@ -43,7 +43,7 @@ Completed and merged. A1 captured the live DOM/current-shape research; A2 restor
 - Rewrite the relevant parts of `automated_builds_pipeline/sources/bazaardb.py` to match the research findings.
 - Update `tests/test_sources_bazaardb.py`. Drive the tests off the new sample committed in A1.
 - Verify locally with the dry-run command from `bazaar-builds/docs/pipeline-operations.md`.
-- Open a PR closing issue #2.
+- Open a PR for the issue #2 follow-up work.
 
 The split lets A1 end with curator review of the research note before A2 commits to a parser shape. If A1 finds the page essentially unchanged and only Cloudflare detection improved, A1 + A2 can collapse into a single session — that decision is part of A1's deliverable.
 
@@ -112,4 +112,4 @@ These need a curator answer before the next implementation pass:
 ## 5. Operational Caveats
 
 - **`anthropic` package missing in local venv**: end-to-end local dry runs that exercise the LLM step will halt at diff generation. The GitHub Actions runner installs deps fresh, so cron is unaffected. `pip install anthropic` in the local venv to enable full local coverage.
-- **Pipeline phase remains `implementation`**: the workflow exits without action on its weekly cron. Even with issue #2 closed, the curator must manually flip to `local_dry_run` for ad-hoc verification, then to `shadow_cron`. Promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).
+- **Pipeline phase remains `implementation`**: the workflow exits without action on its weekly cron. Issue #2 remains open; regardless, the curator must manually flip to `local_dry_run` for ad-hoc verification, then to `shadow_cron`. Promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).

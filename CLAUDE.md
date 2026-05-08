@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A tracker/coach plugin for The Bazaar (a PvP autobattler card game by Tempo Storm). It captures every decision during a run into a local SQLite database, scores them against known build guides, and shows live coaching via an in-game overlay. The project has hero-aware build catalogs for Karnok plus an initial Mak slice. Distributed as a Windows installer; first alpha release published at https://github.com/hearn1/bazaar_tracker (tag: v0.1-alpha.1).
+A tracker/coach plugin for The Bazaar (a PvP autobattler card game by Tempo Storm). It captures every decision during a run into a local SQLite database, scores them against known build guides, and shows live coaching via an in-game overlay. The project has hero-aware build catalogs for Karnok, Mak, Dooley, Vanessa, and Pygmalien. Distributed as a Windows installer; first alpha release published at https://github.com/hearn1/bazaar_tracker (tag: v0.1-alpha.1).
 
 ## Common commands
 
@@ -134,5 +134,7 @@ Manual diagnostics:
 **[https://github.com/hearn1/bazaar-builds](https://github.com/hearn1/bazaar-builds)**
 
 That repo contains the enricher, probe scripts, CI schema validation, and usage instructions. When updating a hero catalog: run the enricher there, review the proposal markdown it produces, then hand-edit the appropriate `<hero>_builds.json` here and open a PR.
+
+For bazaar-builds manual catalog curation, distinguish safe no-op workflow validation from evidence-bearing curation. A run without fetched post evidence can validate the command path, but catalog curation validation requires fetched post evidence, normally with `--fetch-posts`, or an explicitly evidence-backed empty result after fetch attempts. If curator-accepted deltas exist, apply and validate the catalog edit; if no accepted deltas exist, record the evidence-backed no-change decision.
 
 See `ROADMAP.md` for open bugs and planned features.
