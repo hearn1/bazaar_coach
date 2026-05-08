@@ -63,14 +63,15 @@ How to test:
 
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".
 
-Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. This does not enable `shadow_cron` or `live_cron`; scheduled unattended operation remains gated on further local dry-run confidence and source-health accumulation.
+Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. This does not enable `shadow_cron` or `live_cron`; scheduled unattended operation remains gated on artifact review, clear source-health reporting, stats-sidecar expectations, and rollback readiness.
 
 Promotion evidence:
 - Python 3.12.10 temporary environment used.
-- Focused pipeline tests passed: `61 passed`.
-- Karnok `local_dry_run` with `--mock-llm` exited 0 and avoided real LLM/API calls.
-- Live source fetches succeeded: bazaar-builds.net `2026-W19`, bazaardb `14.0 (Hotfix May 7)`, Mobalytics `v541`.
-- Temp-space `Karnok_diff.json` and `Karnok_build_update_proposal.md` artifacts were produced; no stats sidecar, checked-in pipeline state, catalog, or tracker catalog files mutated during validation.
+- Focused pipeline tests passed: `59 passed in 0.39s`.
+- All supported heroes completed `local_dry_run` with `--mock-llm`, live source fetches, temp-only artifacts, and exit code 0: Dooley, Karnok, Mak, Pygmalien, and Vanessa.
+- Live source fetches succeeded for three sources: bazaar-builds.net `2026-W19`, bazaardb `14.0 (Hotfix May 7)`, Mobalytics `v541`. This is source count, not three temporal windows.
+- Each hero produced diff JSON and proposal markdown. No real LLM/API calls occurred, and no checked-in pipeline state, catalog, stats sidecar, or tracker catalog files mutated during validation.
+- Mock-mode proposals are operational validation only, not catalog-acceptance evidence. Support-only classifications, low confidence, duplicate/near-duplicate proposals, and missing evidence refs/sample counts remain normal curator review items rather than pipeline failures.
 
 LLM classifier follow-up:
 - Handle this in a separate session after the current GitHub Actions validation path is stable.
@@ -84,7 +85,7 @@ LLM classifier follow-up:
 
 How to test:
 - Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation.
-- Shadow readiness: accumulate healthy source windows without opening tracker PRs.
+- Shadow readiness: review all-hero local dry-run artifacts, confirm required source-health fields are clear, confirm no checked-in mutation during local dry runs, understand that shadow writes stats sidecars in bazaar-builds, and keep a documented rollback path to `local_dry_run` or `implementation`.
 - Live readiness: require at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output before enabling rolling tracker PRs.
 
 ### Build Archetype Images - Open
