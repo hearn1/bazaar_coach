@@ -535,6 +535,29 @@
           "notes": "Launcher Core produces some of Dooley's wildest loops. Burn scaling, self-charge enablers, and Freeze support all pull this board across the line."
         },
         {
+          "name": "Space Laser",
+          "phase": "late",
+          "timing_profile": "exodia",
+          "condition": "Needs Space Laser plus the repeated Dooley charge and Flying shell: Battery, Launcher Core, Messenger Sparrow, Red Button, and Thrusters.",
+          "condition_items": [
+            "Space Laser",
+            "Launcher Core",
+            "Red Button"
+          ],
+          "core_items": [
+            "Battery",
+            "Launcher Core",
+            "Messenger Sparrow",
+            "Red Button",
+            "Thrusters"
+          ],
+          "carry_items": [
+            "Space Laser"
+          ],
+          "support_items": [],
+          "notes": "Accepted Bazaar Builds Space Laser evidence showed two fetched posts with the same repeated identity package: Battery, Launcher Core, Messenger Sparrow, Red Button, and Thrusters. Do not add one-off support from Frog Hollow, Laser Security System, Wild Boar, Levitation Pad, Athanor, Refractor, or Mech-Moles until more evidence repeats."
+        },
+        {
           "name": "Terry-Dactyl",
           "phase": "late",
           "timing_profile": "scaling",
