@@ -12,10 +12,12 @@
 | Issue #4 — bazaar-builds.net fetcher date health | **Closed.** PR `bazaar-builds#5`. Untracked record-creation paths bypassing the date filter were fixed; tests added; live fetch healthy. |
 | Issue #3 — Mobalytics `document_version_missing` | **Closed.** PR `bazaar-builds#6`. Path walker now tolerates unrelated queries and null rows; diagnostic detail split into `document_path_missing` vs `document_version_missing`; live shape sample committed at `bazaar-builds/research/samples/mobalytics/meta-builds-preloaded-state-builds-2026-05-06.json`; live fetch healthy at `mobalytics_meta_builds:v540`. |
 | Issue #2 — bazaardb `content_landmark_missing` / core-item evidence | **Open.** A1 research confirmed the source remains viable; A2 restored the fetcher; follow-up `5367e7d` included bazaardb core-item evidence and merged via `bazaar-builds` merge commit `ddd5277`, but the GitHub issue remains open. |
-| Pipeline phase | `bazaar-builds` has been promoted to `phase: local_dry_run` with `dry_run: true`. This remains artifact-only/manual-review; `shadow_cron` and `live_cron` are future gates. |
-| Healthy sources today | bazaar-builds.net, mobalytics_meta_builds, bazaardb. (mobalytics_build_articles is `skipped` until article slugs are configured.) |
+| Pipeline phase | `bazaar-builds` remains at `phase: local_dry_run` with `dry_run: true`. All supported heroes have now passed controlled local dry runs, but `shadow_cron` and `live_cron` remain future gates. |
+| Healthy sources in all-hero validation | Three healthy sources were observed: bazaar-builds.net `2026-W19`, mobalytics_meta_builds `v541`, and bazaardb `14.0 (Hotfix May 7)`. These are source-health results from one validation set, not three temporal windows. |
 
 The 2026-05-06 dry run also surfaced a set of architecture-review findings beyond the three fetcher bugs. They are catalogued in §3 below and slotted into sessions in §2.
+
+Follow-up validation covered Dooley, Karnok, Mak, Pygmalien, and Vanessa in `local_dry_run` with `--mock-llm`, live source fetches, temp-only artifacts, and exit code 0 for each hero. Focused tests passed (`59 passed in 0.39s`). Each hero produced diff JSON and proposal markdown, no real LLM/API calls occurred, and no checked-in state, catalog, stats sidecar, or tracker catalog files mutated. Artifact review treats these mock-mode outputs as operational evidence only; support-only/low-confidence classifications, duplicate or near-duplicate proposals, and missing evidence refs/sample counts are expected curator review items, not catalog-acceptance evidence.
 
 ---
 
@@ -112,4 +114,4 @@ These need a curator answer before the next implementation pass:
 ## 5. Operational Caveats
 
 - **`anthropic` package missing in local venv**: end-to-end local dry runs that exercise the LLM step will halt at diff generation. The GitHub Actions runner installs deps fresh, so cron is unaffected. `pip install anthropic` in the local venv to enable full local coverage.
-- **Pipeline phase is `local_dry_run`**: `bazaar-builds` has been promoted with `dry_run: true`, which keeps output artifact-only and under manual review. `shadow_cron` and `live_cron` remain future gates; promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).
+- **Pipeline phase is `local_dry_run`**: `bazaar-builds` has been promoted with `dry_run: true`, which keeps output artifact-only and under manual review. `shadow_cron` remains gated on reviewed all-hero local artifacts, clear required source-health fields, no checked-in mutation during local dry runs, explicit stats-sidecar expectations, and a rollback path to `local_dry_run` or `implementation`. `live_cron` remains a later gate requiring at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output (per subtask 1 §8).
