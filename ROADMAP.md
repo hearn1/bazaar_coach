@@ -63,13 +63,13 @@ How to test:
 
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".
 
-Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. This does not enable `shadow_cron` or `live_cron`; scheduled unattended operation remains gated on artifact review, clear source-health reporting, stats-sidecar expectations, and rollback readiness.
+Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. The GitHub Actions cron schedule already exists, so scheduled and manual `local_dry_run` runs may fetch sources, evaluate, write diff/proposal artifacts, and upload review artifacts, but they do not save or commit stats sidecars and do not mutate tracker catalogs. `shadow_cron` and `live_cron` remain disabled until explicit manual phase gates are passed.
 
 Promotion evidence:
 - Python 3.12.10 temporary environment used.
 - Focused pipeline tests passed: `59 passed in 0.39s`.
 - All supported heroes completed `local_dry_run` with `--mock-llm`, live source fetches, temp-only artifacts, and exit code 0: Dooley, Karnok, Mak, Pygmalien, and Vanessa.
-- Live source fetches succeeded for three sources: bazaar-builds.net `2026-W19`, bazaardb `14.0 (Hotfix May 7)`, Mobalytics `v541`. This is source count, not three temporal windows.
+- Live source fetches succeeded for three sources: bazaar-builds.net `2026-W19`, bazaardb `14.0 (Hotfix May 7)`, Mobalytics `v541`. This is source count, not three temporal windows. Markdown source-health tables are summaries; the diff JSON is the fuller source-health review artifact when per-source observations or diagnostics matter.
 - Each hero produced diff JSON and proposal markdown. No real LLM/API calls occurred, and no checked-in pipeline state, catalog, stats sidecar, or tracker catalog files mutated during validation.
 - Mock-mode proposals are operational validation only, not catalog-acceptance evidence. Support-only classifications, low confidence, duplicate/near-duplicate proposals, and missing evidence refs/sample counts remain normal curator review items rather than pipeline failures.
 
@@ -84,8 +84,9 @@ LLM classifier follow-up:
 - Waiting for Anthropic credits has the least implementation churn if existing Claude wiring is otherwise healthy, but it does not unblock unpaid/local dry-run operation.
 
 How to test:
-- Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation.
-- Shadow readiness: review all-hero local dry-run artifacts, confirm required source-health fields are clear, confirm no checked-in mutation during local dry runs, understand that shadow writes stats sidecars in bazaar-builds, and keep a documented rollback path to `local_dry_run` or `implementation`.
+- Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation. Remember that scheduled workflow runs default to the real classifier because `--mock-llm` is only supplied by manual dispatch input or by changing the workflow/code.
+- Shadow readiness: review all-hero local dry-run artifacts, confirm required source-health fields are clear, confirm no checked-in mutation during local dry runs, accept that `shadow_cron` writes and commits stats sidecars in bazaar-builds while still avoiding tracker PR/catalog mutation, and keep a documented rollback path to `local_dry_run` or `implementation`.
+- Before flipping to `shadow_cron`: confirm the Actions schedule on `main` is intended; confirm Claude secret/API/cost readiness; confirm stats sidecar commits are accepted; perform or explicitly waive real-LLM validation; confirm the rollback path.
 - Live readiness: require at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output before enabling rolling tracker PRs.
 
 ### Build Archetype Images - Open
