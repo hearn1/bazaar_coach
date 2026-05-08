@@ -434,7 +434,7 @@ bazaardb is patch-scoped with no archive. There's no source to bootstrap from. (
 
 **Decision: add a small source-drift defense layer alongside the phased rollout, without changing proposal thresholds, stats persistence, PR mechanics, or phase promotion.** Source shape drift is now the highest-friction failure mode: fixture tests catch parser regressions, but they do not show when a live source has changed since the last probe. The defense layer has two additive surfaces.
 
-**`live-sources-smoke` workflow.** Add a separate GitHub Actions workflow in `bazaar-builds` with a weekly cron and `workflow_dispatch`. It fetches each live source and runs only the source health checks from the subtask 1 contract. It must not run threshold evaluation, LLM classification, tracker PR creation, stats mutation, proposal rendering, or pipeline phase promotion. It ignores `pipeline_state.json` phase except for optional read-only patch-label expectations; `phase: implementation` remains the main pipeline off switch, not a reason to skip source smoke.
+**`live-sources-smoke` workflow.** Add a separate GitHub Actions workflow in `bazaar-builds` with a weekly cron and `workflow_dispatch`. It fetches each live source and runs only the source health checks from the subtask 1 contract. It must not run threshold evaluation, LLM classification, tracker PR creation, stats mutation, proposal rendering, or pipeline phase promotion. It ignores `pipeline_state.json` phase except for optional read-only patch-label expectations; after promotion, `phase: local_dry_run` with `dry_run: true` keeps the main pipeline artifact-only until future phase gates.
 
 The smoke job should emit one structured JSON summary artifact per run with:
 

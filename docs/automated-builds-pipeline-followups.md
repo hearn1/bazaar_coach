@@ -8,11 +8,11 @@
 
 | Subtask / area | State |
 |---|---|
-| Subtasks 1–7 (design + implementation) | All merged. ROADMAP entry remains Open pending curator flip out of `phase: implementation`. |
+| Subtasks 1–7 (design + implementation) | All merged. ROADMAP entry remains Open while `local_dry_run` remains artifact-only and manual-review. |
 | Issue #4 — bazaar-builds.net fetcher date health | **Closed.** PR `bazaar-builds#5`. Untracked record-creation paths bypassing the date filter were fixed; tests added; live fetch healthy. |
 | Issue #3 — Mobalytics `document_version_missing` | **Closed.** PR `bazaar-builds#6`. Path walker now tolerates unrelated queries and null rows; diagnostic detail split into `document_path_missing` vs `document_version_missing`; live shape sample committed at `bazaar-builds/research/samples/mobalytics/meta-builds-preloaded-state-builds-2026-05-06.json`; live fetch healthy at `mobalytics_meta_builds:v540`. |
 | Issue #2 — bazaardb `content_landmark_missing` / core-item evidence | **Open.** A1 research confirmed the source remains viable; A2 restored the fetcher; follow-up `5367e7d` included bazaardb core-item evidence and merged via `bazaar-builds` merge commit `ddd5277`, but the GitHub issue remains open. |
-| Pipeline phase | `implementation` (cron does nothing). Will not promote to `local_dry_run` / `shadow_cron` / `live_cron` until the curator manually flips. |
+| Pipeline phase | `bazaar-builds` has been promoted to `phase: local_dry_run` with `dry_run: true`. This remains artifact-only/manual-review; `shadow_cron` and `live_cron` are future gates. |
 | Healthy sources today | bazaar-builds.net, mobalytics_meta_builds, bazaardb. (mobalytics_build_articles is `skipped` until article slugs are configured.) |
 
 The 2026-05-06 dry run also surfaced a set of architecture-review findings beyond the three fetcher bugs. They are catalogued in §3 below and slotted into sessions in §2.
@@ -112,4 +112,4 @@ These need a curator answer before the next implementation pass:
 ## 5. Operational Caveats
 
 - **`anthropic` package missing in local venv**: end-to-end local dry runs that exercise the LLM step will halt at diff generation. The GitHub Actions runner installs deps fresh, so cron is unaffected. `pip install anthropic` in the local venv to enable full local coverage.
-- **Pipeline phase remains `implementation`**: the workflow exits without action on its weekly cron. Issue #2 remains open; regardless, the curator must manually flip to `local_dry_run` for ad-hoc verification, then to `shadow_cron`. Promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).
+- **Pipeline phase is `local_dry_run`**: `bazaar-builds` has been promoted with `dry_run: true`, which keeps output artifact-only and under manual review. `shadow_cron` and `live_cron` remain future gates; promotion to `live_cron` requires ≥6 healthy bazaardb patch windows AND ≥60 calendar days of shadow output (per subtask 1 §8).
