@@ -63,14 +63,14 @@ How to test:
 
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".
 
-Status: design and early infrastructure exist in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo, but the production workflow is not live. The pipeline remains in `phase: implementation`, so cron exits without action until the curator promotes it.
+Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. This does not enable `shadow_cron` or `live_cron`; scheduled unattended operation remains gated on further local dry-run confidence and source-health accumulation.
 
-Open implementation subtasks:
-1. **Source fetchers** - bazaardb (Playwright), Mobalytics (PRELOADED_STATE), bazaar-builds.net (existing-enricher wrapper). Each emits a `WindowObservation` plus per-source health.
-2. **Threshold evaluator** - engine that consumes fetcher output + sidecar history + `pipeline_state.json` + current catalog, applies the threshold rules, and emits the per-row schema from `docs/automated-builds-pipeline-subtask1-signal-spec.md`.
-3. **Diff generator + LLM** - given threshold rows + catalog + LLM classification, emit a structured proposed-change set (adds, removes, archetype reshuffles) richer than today's `*_build_update_proposal.md`.
-4. **GitHub Actions workflow** - cron, runs the fetchers + evaluator + diff generator, opens or updates a single rolling PR per hero with the changes plus a human-readable summary.
-5. **Review tooling** - small dashboard or PR-comment template that surfaces the supporting stats for each proposed add/remove so the reviewer does not have to dig.
+Promotion evidence:
+- Python 3.12.10 temporary environment used.
+- Focused pipeline tests passed: `61 passed`.
+- Karnok `local_dry_run` with `--mock-llm` exited 0 and avoided real LLM/API calls.
+- Live source fetches succeeded: bazaar-builds.net `2026-W19`, bazaardb `14.0 (Hotfix May 7)`, Mobalytics `v541`.
+- Temp-space `Karnok_diff.json` and `Karnok_build_update_proposal.md` artifacts were produced; no stats sidecar, checked-in pipeline state, catalog, or tracker catalog files mutated during validation.
 
 LLM classifier follow-up:
 - Handle this in a separate session after the current GitHub Actions validation path is stable.
@@ -83,9 +83,9 @@ LLM classifier follow-up:
 - Waiting for Anthropic credits has the least implementation churn if existing Claude wiring is otherwise healthy, but it does not unblock unpaid/local dry-run operation.
 
 How to test:
-- Signal logic: dry-run against historical artifacts and confirm the proposed deltas match what the curator would have done by hand.
-- Workflow: trigger the action manually on a fork; confirm a PR appears, contains a sane diff, and CI passes.
-- End-to-end: skip a day of runs, then trigger the job; confirm the resulting PR is empty or near-empty with no spurious churn from low sample size.
+- Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation.
+- Shadow readiness: accumulate healthy source windows without opening tracker PRs.
+- Live readiness: require at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output before enabling rolling tracker PRs.
 
 ### Build Archetype Images - Open
 
