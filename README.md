@@ -175,13 +175,7 @@ The `decisions` table has live scoring columns:
 
 ## Roadmap
 
-See `ROADMAP.md` for current open work. Current major statuses:
-- Prod readiness / packaging: ready for first GitHub upload; `.gitignore` hygiene and portable build script Python selection are complete.
-- Remove post-run scoring: complete; live scoring is authoritative and bridge is manual diagnostics only.
-- Multi-hero support: partial.
-- Mak depth: partial.
-- Card images: partial; paused pending BazaarDB response about optional local caching.
-- Event choice scoring: deprioritized.
+See `ROADMAP.md` for current open work. Completed roadmap items are removed from that file rather than kept as checked-off entries.
 
 ## Architecture
 
