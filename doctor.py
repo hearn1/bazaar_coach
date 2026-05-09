@@ -144,16 +144,7 @@ def _detect_bazaar_process(process_name: str = "TheBazaar.exe") -> dict:
 
 
 def find_player_log_path() -> Path:
-    candidates = [
-        Path(os.environ.get("LOCALAPPDATA", ""), "..", "LocalLow", "Tempo Storm", "The Bazaar", "Player.log"),
-        Path(os.environ.get("USERPROFILE", "C:/Users/User"), "AppData", "LocalLow", "Tempo Storm", "The Bazaar", "Player.log"),
-        Path("Player.log"),
-    ]
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved.exists():
-            return resolved
-    return candidates[1].resolve()
+    return app_paths.find_player_log()
 
 
 def collect_db_summary() -> dict:
@@ -265,6 +256,43 @@ def collect_build_catalog_sources() -> dict:
         "builds_dir": str(app_paths.data_dir() / "builds"),
         "catalogs": catalogs,
     }
+
+
+_WEBVIEW2_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+_WEBVIEW2_SUBKEY = rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2_GUID}"
+_WEBVIEW2_SUBKEY_WOW = rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2_GUID}"
+
+
+def _check_webview2() -> CheckResult:
+    """Detect Microsoft Edge WebView2 Runtime via winreg (Windows only)."""
+    if os.name != "nt":
+        return _result("WebView2 Runtime", "warn", "WebView2 check is Windows-only; overlay may not work")
+
+    try:
+        import winreg
+    except ImportError:
+        return _result("WebView2 Runtime", "warn", "winreg unavailable; cannot detect WebView2 Runtime")
+
+    search = [
+        (winreg.HKEY_LOCAL_MACHINE, _WEBVIEW2_SUBKEY_WOW),
+        (winreg.HKEY_LOCAL_MACHINE, _WEBVIEW2_SUBKEY),
+        (winreg.HKEY_CURRENT_USER, _WEBVIEW2_SUBKEY),
+    ]
+    for hive, subkey in search:
+        try:
+            with winreg.OpenKey(hive, subkey) as key:
+                version, _ = winreg.QueryValueEx(key, "pv")
+            if version and version != "0.0.0.0":
+                return _result("WebView2 Runtime", "ok", f"WebView2 Runtime {version}", version=version)
+        except OSError:
+            continue
+
+    return _result(
+        "WebView2 Runtime",
+        "warn",
+        "WebView2 Runtime not found — overlay requires it. "
+        "Install from https://developer.microsoft.com/microsoft-edge/webview2/ (Evergreen Bootstrapper).",
+    )
 
 
 def collect_doctor_report() -> dict:
@@ -417,6 +445,8 @@ def collect_doctor_report() -> dict:
         f"frida {frida_version}" if frida_version != "not installed" else "frida is not installed; Mono capture will not work",
         version=frida_version,
     ))
+
+    checks.append(_check_webview2())
 
     port = int(settings.get("tracker.web_port", 5555) or 5555)
     if _connect_port("127.0.0.1", port):

@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import tempfile
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -16,6 +18,11 @@ import scorer
 
 RAW_BASE_URL = "https://raw.githubusercontent.com/hearn1/bazaar_tracker/main"
 REQUEST_TIMEOUT_SECONDS = 12
+
+_RETRYABLE_STATUSES = {429, 502, 503, 504}
+_RETRY_JITTER_MIN = 0.8
+_RETRY_JITTER_MAX = 2.0
+_RETRY_AFTER_MAX = 5.0
 
 
 @dataclass(frozen=True)
@@ -55,19 +62,66 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
                 pass
 
 
+def _retry_delay(response: object | None) -> float:
+    """Return how long to sleep before the single retry attempt."""
+    if response is not None:
+        try:
+            after = float(getattr(response, "headers", {}).get("Retry-After", ""))
+            return min(after, _RETRY_AFTER_MAX)
+        except (ValueError, TypeError):
+            pass
+    return random.uniform(_RETRY_JITTER_MIN, _RETRY_JITTER_MAX)
+
+
+def _is_retryable_response(response: object) -> bool:
+    return getattr(response, "status_code", None) in _RETRYABLE_STATUSES
+
+
 def _refresh_one(hero: str, filename: str, *, out_dir: Path) -> HeroRefreshResult:
     url = f"{RAW_BASE_URL}/{filename}"
-    try:
-        response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-    except requests.RequestException as exc:
-        return HeroRefreshResult(hero, filename, "skipped", f"fetch failed: {exc}")
+    response = None
+    retried = False
 
-    if response.status_code != 200:
+    for attempt in range(2):
+        try:
+            response = requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if retried:
+                return HeroRefreshResult(hero, filename, "skipped", f"fetch failed: {exc}")
+            delay = _retry_delay(None)
+            print(f"[Builds] INFO {filename}: retryable error ({exc!r}), retrying in {delay:.1f}s")
+            time.sleep(delay)
+            retried = True
+            continue
+        except requests.RequestException as exc:
+            return HeroRefreshResult(hero, filename, "skipped", f"fetch failed: {exc}")
+
+        if response.status_code == 200:
+            break
+
+        if not retried and _is_retryable_response(response):
+            delay = _retry_delay(response)
+            print(
+                f"[Builds] INFO {filename}: HTTP {response.status_code}, retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+            retried = True
+            response = None
+            continue
+
         return HeroRefreshResult(
             hero,
             filename,
             "skipped",
             f"HTTP {response.status_code} from {url}",
+        )
+
+    if response is None or response.status_code != 200:
+        return HeroRefreshResult(
+            hero,
+            filename,
+            "skipped",
+            f"HTTP {getattr(response, 'status_code', 'unknown')} from {url}",
         )
 
     content = response.content

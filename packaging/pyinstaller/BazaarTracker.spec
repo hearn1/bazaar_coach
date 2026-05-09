@@ -15,6 +15,7 @@ datas = [
     (str(ROOT / "mak_builds.json"), "."),
     (str(ROOT / "pygmalien_builds.json"), "."),
     (str(ROOT / "vanessa_builds.json"), "."),
+    (str(ROOT / "builds_schema.json"), "."),
     (str(ROOT / "capture_mono.py"), "."),
     (str(ROOT / "README.md"), "."),
     (str(ROOT / "ROADMAP.md"), "."),

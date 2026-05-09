@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -126,20 +127,27 @@ def test_refresh_builds_404_skips_one_and_returns_nonzero(tmp_path, monkeypatch)
 def test_refresh_builds_connection_error_still_attempts_remaining(tmp_path, monkeypatch):
     out_dir = tmp_path / "builds"
     calls = []
+    # Track which filename is the first one attempted (sorted order).
+    first_hero_filename: list[str] = []
 
     def fake_get(url, timeout):
         filename = url.rsplit("/", 1)[-1]
         calls.append(filename)
-        if len(calls) == 1:
+        if not first_hero_filename:
+            first_hero_filename.append(filename)
+        # First hero fails on both initial attempt and retry; all others succeed.
+        if filename == first_hero_filename[0]:
             raise requests.ConnectionError("offline")
         return _response(200, _catalog_bytes(filename.removesuffix("_builds.json")))
 
     monkeypatch.setattr(refresh_builds.requests, "get", fake_get)
+    monkeypatch.setattr(refresh_builds.time, "sleep", lambda _: None)
 
     code = refresh_builds.main(["--out", str(out_dir)])
 
     assert code == 1
-    assert len(calls) == len(scorer.CATALOG_FILENAMES)
+    # First hero is called twice (initial + retry), all others once.
+    assert len(calls) == len(scorer.CATALOG_FILENAMES) + 1
     assert sum(1 for path in out_dir.glob("*_builds.json")) == len(scorer.CATALOG_FILENAMES) - 1
 
 
@@ -308,3 +316,76 @@ def test_load_builds_returns_empty_when_no_catalog_exists(tmp_path, monkeypatch)
     assert builds["hero"] == "Karnok"
     assert builds["last_updated"] is None
     assert not scorer.has_build_catalog(builds)
+
+
+def test_refresh_one_retries_once_on_429_then_succeeds(tmp_path, monkeypatch):
+    """A 429 on the first attempt triggers exactly one retry; success on retry → updated."""
+    out_dir = tmp_path / "builds"
+    calls = []
+    content = _catalog_bytes("Karnok")
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        if len(calls) == 1:
+            return SimpleNamespace(
+                status_code=429,
+                content=b"rate limited",
+                headers={"Retry-After": "1"},
+            )
+        return _response(200, content)
+
+    monkeypatch.setattr(refresh_builds.requests, "get", fake_get)
+    monkeypatch.setattr(refresh_builds.time, "sleep", lambda _: None)
+
+    result = refresh_builds._refresh_one("karnok", "karnok_builds.json", out_dir=out_dir)
+
+    assert result.status == "updated", f"expected updated, got: {result}"
+    assert len(calls) == 2, f"expected exactly 2 attempts, got {len(calls)}"
+    assert (out_dir / "karnok_builds.json").is_file()
+
+
+def test_refresh_one_no_retry_on_404(tmp_path, monkeypatch):
+    """A 404 is non-retryable — exactly one attempt, skipped result."""
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        return _response(404, b"not found")
+
+    monkeypatch.setattr(refresh_builds.requests, "get", fake_get)
+    monkeypatch.setattr(refresh_builds.time, "sleep", lambda _: None)
+
+    result = refresh_builds._refresh_one("karnok", "karnok_builds.json", out_dir=tmp_path)
+
+    assert result.status == "skipped"
+    assert len(calls) == 1
+
+
+def test_refresh_one_retry_after_header_clamped(monkeypatch):
+    """Retry-After values above the cap are clamped to _RETRY_AFTER_MAX."""
+    slept: list[float] = []
+    calls = []
+    content = _catalog_bytes("Karnok")
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        if len(calls) == 1:
+            return SimpleNamespace(
+                status_code=503,
+                content=b"busy",
+                headers={"Retry-After": "999"},
+            )
+        return _response(200, content)
+
+    monkeypatch.setattr(refresh_builds.requests, "get", fake_get)
+    monkeypatch.setattr(refresh_builds.time, "sleep", lambda s: slept.append(s))
+
+    out_dir = None
+    # Use a simple tmp path via monkeypatching builds_dir isn't needed; pass a real tmp.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as td:
+        result = refresh_builds._refresh_one("karnok", "karnok_builds.json", out_dir=Path(td))
+
+    assert result.status == "updated"
+    assert len(slept) == 1
+    assert slept[0] <= refresh_builds._RETRY_AFTER_MAX
