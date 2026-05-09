@@ -91,14 +91,18 @@ def normalize_hero_name(hero: Optional[str]) -> str:
     return (hero or "").strip()
 
 
+def _catalog_filename_or_none(hero: str) -> Optional[str]:
+    hero_name = normalize_hero_name(hero)
+    if not hero_name:
+        return CATALOG_FILENAMES[DEFAULT_HERO.casefold()]
+    return CATALOG_FILENAMES.get(hero_name.casefold())
+
+
 def _hero_catalog_filename(hero: str) -> str:
-    alias = CATALOG_FILENAMES.get(hero.casefold())
+    alias = _catalog_filename_or_none(hero)
     if alias:
         return alias
-    slug = re.sub(r"[^a-z0-9]+", "_", hero.casefold()).strip("_")
-    if not slug:
-        return CATALOG_FILENAMES[DEFAULT_HERO.casefold()]
-    return f"{slug}_builds.json"
+    raise ValueError(f"No build catalog for {normalize_hero_name(hero)}")
 
 
 def _builds_path(hero: Optional[str] = None) -> Path:
@@ -193,6 +197,11 @@ def validate_builds_catalog(data: dict) -> tuple[bool, str]:
 
 @lru_cache(maxsize=None)
 def _load_builds_cached(hero_name: str) -> dict:
+    hero_name = normalize_hero_name(hero_name) or DEFAULT_HERO
+    if _catalog_filename_or_none(hero_name) is None:
+        print(f"[Scorer] No build catalog for {hero_name}; using empty catalog.")
+        return _empty_builds(hero_name)
+
     for source, path in (
         ("writable", _writable_builds_path(hero_name)),
         ("bundled", _builds_path(hero_name)),
@@ -223,7 +232,19 @@ def _load_builds_cached(hero_name: str) -> dict:
 def catalog_source_status(hero: str) -> dict:
     """Return source/last_updated details for doctor without mutating the load cache."""
     hero_name = normalize_hero_name(hero) or DEFAULT_HERO
-    filename = _hero_catalog_filename(hero_name)
+    filename = _catalog_filename_or_none(hero_name)
+    if filename is None:
+        return {
+            "ok": False,
+            "code": "unknown_hero",
+            "hero": hero_name,
+            "filename": None,
+            "source": "empty",
+            "last_updated": None,
+            "message": f"No build catalog for {hero_name}",
+            "candidates": [],
+        }
+
     candidates = []
     selected = None
     for source, path in (
@@ -255,10 +276,16 @@ def catalog_source_status(hero: str) -> dict:
         if selected is None and details["valid"]:
             selected = details
     return {
+        "ok": selected is not None,
+        "code": "ok" if selected else "no_valid_catalog",
         "hero": hero_name,
         "filename": filename,
         "source": selected["source"] if selected else "empty",
         "last_updated": selected["last_updated"] if selected else None,
+        "message": (
+            f"Using {selected['source']} catalog for {hero_name}"
+            if selected else f"No valid build catalog found for {hero_name}"
+        ),
         "candidates": candidates,
     }
 

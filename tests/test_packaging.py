@@ -76,6 +76,13 @@ def test_pyinstaller_spec_bundles_build_catalogs():
     assert '"vanessa_builds.json"' in spec
 
 
+def test_pyinstaller_spec_is_windowed_after_null_stream_coverage():
+    root = app_paths.repo_dir()
+    spec = (root / "packaging" / "pyinstaller" / "BazaarTracker.spec").read_text()
+
+    assert "console=False" in spec
+
+
 def test_build_portable_selects_python_flexibly():
     script = (app_paths.repo_dir() / "packaging" / "pyinstaller" / "build_portable.ps1").read_text()
 

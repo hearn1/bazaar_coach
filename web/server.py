@@ -25,6 +25,7 @@ import sqlite3
 import argparse
 import threading
 import sys
+import traceback
 from datetime import datetime, timezone
 from typing import Optional, Callable
 from pathlib import Path
@@ -230,7 +231,15 @@ def api_builds_items(hero: str):
         _build_data, relevant_items = load_builds(hero)
     except Exception as exc:
         print(f"[CardImages] load_builds failed for {hero!r}: {exc}")
-        return jsonify({})
+        traceback.print_exc()
+        return jsonify({
+            "items": {},
+            "error": {
+                "code": "build_items_load_failed",
+                "hero": hero,
+                "message": str(exc),
+            },
+        }), 500
 
     result: dict[str, str] = {}
     for item_name in relevant_items or []:
@@ -346,6 +355,8 @@ def api_overlay_state():
             lookup_image_by_name_fn=lookup_image_url,
         )
         if "error" in state:
+            if state.get("error") == "No runs found":
+                return jsonify({"state": "no_runs"})
             return jsonify(state), 404
         return jsonify(state)
     except Exception as e:
@@ -573,8 +584,15 @@ def main():
     parser = argparse.ArgumentParser(description="Bazaar Tracker Web Dashboard")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--db", type=str, default=None, help="Path to bazaar_runs.db")
+    parser.add_argument("--no-refresh-builds", action="store_true",
+                        help="Do not refresh build catalogs when the web server starts")
     args = parser.parse_args()
-    start_web_server(port=args.port, db_path=args.db, background=False)
+    start_web_server(
+        port=args.port,
+        db_path=args.db,
+        background=False,
+        auto_refresh_builds=not args.no_refresh_builds,
+    )
 
 
 if __name__ == "__main__":

@@ -358,6 +358,9 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
 .update-notice.status-failed {
   background: var(--red-bg); border-color: var(--red-border);
 }
+.update-notice.status-warning {
+  background: rgba(201,164,74,0.10); border-color: var(--accent-dim);
+}
 .build-panel {
   display: none; margin: -6px 0 20px; padding: 12px;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -406,6 +409,12 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
 .build-note .note {
   font-size: 0.78rem; color: var(--text-secondary); line-height: 1.35;
 }
+.build-refresh-detail {
+  border-color: var(--border-lite);
+}
+.build-refresh-detail .status-skipped { color: var(--red); }
+.build-refresh-detail .status-updated { color: var(--green); }
+.build-refresh-detail .status-unchanged { color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -421,6 +430,7 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
   <div class="toast" id="toast"></div>
   <div class="update-notice" id="update-notice"></div>
   <div class="update-notice" id="build-refresh-notice"></div>
+  <div class="update-notice" id="catalog-dashboard-notice"></div>
 
   <div class="build-panel" id="build-panel">
     <div class="build-panel-head">
@@ -470,6 +480,9 @@ let activeFilter = 'all';
 let currentSummary = null;
 let buildRefreshPoll = null;
 let buildNoticeDismissed = false;
+let currentBuildStatus = null;
+
+const SUPPORTED_BUILD_HEROES = new Set(['dooley', 'karnok', 'mak', 'pygmalien', 'vanessa']);
 
 const ICONS = {
   optimal:'✅', good:'👍', situational:'⚠️', suboptimal:'❌', warning:'🔶', info:'ℹ️',
@@ -544,15 +557,80 @@ function buildRefreshMessage(result) {
   return counts;
 }
 
+function incompatibleRefreshResults(result) {
+  const results = Array.isArray(result && result.results) ? result.results : [];
+  return results.filter(r => {
+    const message = String(r.message || '').toLowerCase();
+    return r.status === 'skipped'
+      && (r.code === 'unsupported_schema'
+        || (message.startsWith('validation failed')
+          && message.includes('schema_version')
+          && message.includes('outside supported range')));
+  });
+}
+
+function buildPerHeroRefreshMessages(result) {
+  const results = Array.isArray(result && result.results) ? result.results : [];
+  return results
+    .filter(r => r && r.message)
+    .map(r => {
+      const statusName = r.status || 'unknown';
+      const meta = [
+        `refresh ${statusName}`,
+        r.filename || '',
+      ].filter(Boolean).join(' | ');
+      return `<div class="build-note build-refresh-detail">
+        <div class="hero">${esc(r.hero || '?')}</div>
+        <div class="meta">${esc(meta)}</div>
+        <div class="note status-${esc(statusName)}">${esc(r.message)}</div>
+      </div>`;
+    }).join('');
+}
+
+function knownBuildHeroKeys(status) {
+  const catalogs = Array.isArray(status && status.catalogs) ? status.catalogs : [];
+  const keys = catalogs
+    .map(c => String(c.hero || '').trim().toLowerCase())
+    .filter(Boolean);
+  return keys.length ? new Set(keys) : SUPPORTED_BUILD_HEROES;
+}
+
+function unknownHeroCatalogMessage(summary, status) {
+  const catalogStatus = summary && (summary.catalog_status || summary.build_catalog_status);
+  if (catalogStatus && catalogStatus.code === 'unknown_hero') {
+    return catalogStatus.message || `No build catalog for ${summary.hero || 'this hero'}.`;
+  }
+  const hero = summary && String(summary.hero || '').trim();
+  if (!hero) return '';
+  if (!knownBuildHeroKeys(status).has(hero.toLowerCase())) {
+    return `No build catalog for ${hero}. Build-aware scoring is disabled for this run.`;
+  }
+  return '';
+}
+
+function renderCatalogDashboardNotice(summary, status) {
+  const el = document.getElementById('catalog-dashboard-notice');
+  if (!el) return;
+  const message = unknownHeroCatalogMessage(summary, status);
+  if (!message) {
+    el.classList.remove('visible');
+    el.innerHTML = '';
+    return;
+  }
+  el.className = 'update-notice status-warning visible';
+  el.innerHTML = `<strong>Build catalog unavailable</strong><span>${esc(message)}</span>`;
+}
+
 function renderBuildRefreshNotice(status) {
   const el = document.getElementById('build-refresh-notice');
   if (!el || buildNoticeDismissed) return;
   const result = status && status.last_result;
   if (!result || result.status === 'checking') return;
+  const incompatible = incompatibleRefreshResults(result).length > 0;
   el.className = `update-notice status-${result.status}`;
   el.innerHTML = `
-    <strong>${esc(result.status === 'failed' ? 'Build refresh failed' : result.status === 'updated' ? 'Builds refreshed' : 'Builds current')}</strong>
-    <span>${esc(buildRefreshMessage(result))}</span>
+    <strong>${esc(incompatible ? 'Incompatible build catalog skipped' : result.status === 'failed' ? 'Build refresh failed' : result.status === 'updated' ? 'Builds refreshed' : 'Builds current')}</strong>
+    <span>${esc(incompatible ? 'Refreshed catalog was skipped as incompatible; bundled catalog remains active.' : buildRefreshMessage(result))}</span>
     <button class="dismiss-update" onclick="buildNoticeDismissed=true; document.getElementById('build-refresh-notice').classList.remove('visible')">Dismiss</button>`;
   el.classList.add('visible');
 }
@@ -566,19 +644,21 @@ function renderBuildPanel(status) {
 
   if (statusEl) {
     const statusName = result ? result.status : 'unchanged';
+    const incompatible = incompatibleRefreshResults(result).length > 0;
     statusEl.className = `build-status visible status-${statusName}`;
     statusEl.textContent = result
-      ? buildRefreshMessage(result)
+      ? `${buildRefreshMessage(result)}${incompatible ? ' Refreshed catalog was skipped as incompatible; bundled catalog remains active.' : ''}`
       : 'Build catalogs are loaded from the bundled install unless refreshed catalogs are present.';
   }
 
   if (!notesEl) return;
   const catalogs = (status && status.catalogs) || [];
   if (!catalogs.length) {
-    notesEl.innerHTML = '<div class="empty-state">No build catalogs found.</div>';
+    notesEl.innerHTML = `${buildPerHeroRefreshMessages(result)}<div class="empty-state">No build catalogs found.</div>`;
     return;
   }
-  notesEl.innerHTML = catalogs.map(c => {
+  const refreshMessages = buildPerHeroRefreshMessages(result);
+  const catalogCards = catalogs.map(c => {
     const meta = [
       c.last_updated || 'no date',
       c.source || 'unknown source',
@@ -590,12 +670,15 @@ function renderBuildPanel(status) {
       <div class="note">${esc(c.notes || 'No release notes for this catalog.')}</div>
     </div>`;
   }).join('');
+  notesEl.innerHTML = `${refreshMessages}${catalogCards}`;
 }
 
 async function loadBuildRefreshStatus({ notify=false } = {}) {
   try {
     const status = await api('/api/builds/refresh/status');
+    currentBuildStatus = status;
     renderBuildPanel(status);
+    renderCatalogDashboardNotice(currentSummary, status);
     if (notify) renderBuildRefreshNotice(status);
     if (status.running) {
       if (buildRefreshPoll) clearTimeout(buildRefreshPoll);
@@ -608,6 +691,7 @@ async function loadBuildRefreshStatus({ notify=false } = {}) {
       statusEl.className = 'build-status visible status-failed';
       statusEl.textContent = `Build refresh status unavailable: ${e.message}`;
     }
+    renderCatalogDashboardNotice(currentSummary, currentBuildStatus);
     return null;
   }
 }
@@ -724,6 +808,7 @@ async function loadRun(runId) {
   renderFilters(decisions, summary);
   renderTimeline(decisions, 'all');
   renderCombats(combats);
+  renderCatalogDashboardNotice(summary, currentBuildStatus);
 
   // Close history panel
   document.getElementById('run-history').classList.remove('visible');

@@ -725,7 +725,7 @@ def format_decision_row(
     skip_relevant_items = extract_skip_relevant_items(notes) if dtype == "skip" else []
     skip_has_relevant = bool(skip_relevant_items)
 
-    from build_helpers import extract_insights
+    from web.build_helpers import extract_insights
     insights = extract_insights(
         notes, d.get("score_label", ""), dtype, item_name,
         [n for n in rejected_names if not is_unresolved_fn(n)],

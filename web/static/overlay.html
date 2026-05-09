@@ -1487,6 +1487,7 @@
     };
     let buildCatalogReady = false;
     let buildCatalogError = "";
+    let itemImagesError = "";
 
     let overlayState = null;
     let lastCompletedState = null;
@@ -2734,16 +2735,27 @@
     }
 
     function renderActivePane(state) {
+      const itemAlert = renderItemImagesAlert();
       if (shouldShowIdleState(state)) {
-        return renderIdleState(state);
+        return `${itemAlert}${renderIdleState(state)}`;
       }
       if (activeTab === "review") {
-        return renderReview(state);
+        return `${itemAlert}${renderReview(state)}`;
       }
       if (activeTab === "run") {
-        return renderRun(state);
+        return `${itemAlert}${renderRun(state)}`;
       }
-      return renderCoach(state);
+      return `${itemAlert}${renderCoach(state)}`;
+    }
+
+    function renderItemImagesAlert() {
+      if (!itemImagesError) return "";
+      return `
+        <section class="section">
+          <div class="section-kicker">Card images</div>
+          <div class="note">${escapeHtml(itemImagesError)}</div>
+        </section>
+      `;
     }
 
     function renderLoading() {
@@ -2811,7 +2823,10 @@
     }
 
     function isNoRunsState(state) {
-      return Boolean(state && state.error);
+      return Boolean(
+        state &&
+        (state.state === "no_runs" || state.error === "No runs found")
+      );
     }
 
     function render() {
@@ -3066,6 +3081,7 @@
       }
       buildCatalogReady = false;
       buildCatalogError = "";
+      itemImagesError = "";
       render();
       try {
         const response = await fetch(`/api/builds/archetypes/${encodeURIComponent(requestedHero)}`, { cache: "no-store" });
@@ -3080,12 +3096,23 @@
 
         try {
           const imagesResponse = await fetch(`/api/builds/items/${encodeURIComponent(requestedHero)}`, { cache: "no-store" });
-          if (imagesResponse.ok) {
-            buildCatalog.itemImages = await imagesResponse.json();
+          const imagesPayload = await imagesResponse.json().catch(() => ({}));
+          if (imagesPayload?.error) {
+            const message = imagesPayload.error.message || "Build item images could not be loaded.";
+            itemImagesError = `Build item images could not be loaded: ${message}`;
+            buildCatalog.itemImages = {};
+          } else if (imagesPayload?.items && typeof imagesPayload.items === "object") {
+            itemImagesError = "";
+            buildCatalog.itemImages = imagesPayload.items;
+          } else if (imagesResponse.ok && imagesPayload && typeof imagesPayload === "object") {
+            itemImagesError = "";
+            buildCatalog.itemImages = imagesPayload;
           } else {
+            itemImagesError = `Build item images request failed with status ${imagesResponse.status}`;
             buildCatalog.itemImages = {};
           }
         } catch (imgError) {
+          itemImagesError = imgError.message || "Build item images could not be loaded.";
           buildCatalog.itemImages = {};
         }
 
