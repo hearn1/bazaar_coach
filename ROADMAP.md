@@ -1,6 +1,6 @@
 # Bazaar Tracker - Roadmap
 
-Active work tracker. Project context, architecture, completed work history, and stable design notes live in `CLAUDE.md` and `docs/`.
+Active work tracker. Project context, architecture, completed work history, and stable operating notes live in `CLAUDE.md`.
 
 Status labels:
 - `Partial`: useful foundation exists, but the feature is not complete enough to close.
@@ -42,6 +42,8 @@ How to test:
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".
 
 Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: shadow_cron` with `dry_run: true`. The GitHub Actions cron schedule exists. Scheduled `shadow_cron` runs default to deterministic `no_llm_shadow`, may fetch sources, evaluate, write diff/proposal artifacts, upload review artifacts, and commit `stats/<hero>_stats.json` sidecars in bazaar-builds on `main`. They still do not mutate tracker catalogs or open tracker PRs. `live_cron` remains disabled until a later manual gate with accumulated healthy shadow history and semantic catalog-review readiness.
+
+Historical automated-pipeline design notes have been retired from `docs/`. Keep current tracker-facing pipeline facts here, and keep bazaar-builds operator details in that repo's `README.md`, `ROADMAP.md`, and `CLAUDE.md`.
 
 Promotion evidence:
 - Python 3.12.10 temporary environment used.

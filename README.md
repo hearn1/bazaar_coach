@@ -115,6 +115,8 @@ powershell -ExecutionPolicy Bypass -File packaging\installer\build_installer.ps1
 
 `build_portable.ps1` accepts `-PythonExe` for fresh clones or custom virtual environments. If omitted, it uses `.\venv312\Scripts\python.exe` when present, otherwise it falls back to the active `python` on PATH and prints the selected interpreter.
 
+The Inno Setup installer is built from the PyInstaller onedir output in `dist\BazaarTracker`. It installs app files to a versioned install directory, creates Start Menu shortcuts, offers an optional desktop shortcut, and includes a Start Menu doctor shortcut. Uninstall removes installed app files by default and prompts before deleting `%APPDATA%\BazaarTracker` and `%LOCALAPPDATA%\BazaarTracker`.
+
 ## GitHub Prep
 
 First-commit repository hygiene is in place. The root `.gitignore` keeps local runtime/build/private artifacts out of Git, including `venv312/`, `.venv/`, `build/`, `dist/`, `.pytest_cache/`, `__pycache__/`, `logs/`, `static_cache/`, `bazaar_runs.db*`, `settings.json`, `sqlite3.Connection`, diagnostics zips, PyInstaller outputs, and editor/OS noise. Source files, tests, docs, packaging scripts, requirements files, build catalogs, and roadmap files remain trackable.
