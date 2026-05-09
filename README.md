@@ -43,8 +43,7 @@ This hits `data.playthebazaar.com/static`, keeps the previous local cache active
 python tracker.py refresh-images
 python tracker.py refresh-images --coverage-only
 ```
-Image coverage is still partial; see `ROADMAP.md` for the remaining Unity asset extraction work.
-Image work is currently paused while waiting for BazaarDB guidance on optional local user-side image caching.
+Per-card image extraction remains partial/legacy work. The current roadmap direction is one representative image per build archetype, while still waiting for BazaarDB guidance on optional local user-side image caching.
 
 **5. Refresh build catalogs when updates are available:**
 ```
@@ -92,7 +91,7 @@ python -m pytest -q
 python -B -m py_compile tracker.py first_run.py update_checker.py doctor.py refresh_images.py settings.py card_cache.py content_manifest.py
 ```
 
-Latest verified status: 25 tests passing after the prod-readiness/update-check cleanup.
+Latest local verification: `python -m pytest -q` reports 68 tests passing.
 
 ## Diagnostics
 
