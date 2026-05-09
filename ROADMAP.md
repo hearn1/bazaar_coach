@@ -118,3 +118,31 @@ How to test:
 - Add an `image` field to one archetype in `karnok_builds.json` and confirm overlay Coach tab renders it.
 - Confirm archetypes without an image field display cleanly with no broken-image placeholder.
 - If auto-download is implemented, run `refresh-content` and confirm images land in `static_cache/images/builds/`.
+
+## Feature Backlog (post-alpha)
+
+Candidates surfaced during the v0.2 prod-readiness design pass. These are explicitly out of scope for the initial public release. Yes items have a full description and a clear path forward; Maybe items are recorded as one-line stubs pending more demand or unblocking work. No items have been dropped.
+
+### Yes — Active backlog
+
+**Local Build Override Editor**
+
+- **Goal:** "My Builds" tab in the dashboard where players add, edit, clone, or disable archetypes per hero. Edits are stored in a writable user catalog under `app_paths.data_dir()/user_builds/` and layered on top of (or replacing) bundled and refreshed catalogs. Scorer and overlay consume the merged view automatically.
+- **Status:** Open. Researched.
+- **Estimated effort:** ~3-4 dev days (1 L + 3 M + 2 S chunks).
+- **Relevant files:** `scorer.py` (catalog loader + cache invalidation), `web/build_helpers.py` (`_build_catalog_for_hero` lru_cache), `web/server.py` (new CRUD routes), `web/static/index.html` (new "My Builds" tab), `app_paths.py` (new `user_builds/` dir).
+- **Implementation notes:** The existing writable-vs-bundled precedence pattern from `refresh-builds` is a direct template — user catalogs would be a third tier inserted before writable. Reuse `validate_builds_catalog` for schema validation. Cache invalidation on save: `_build_catalog_for_hero.cache_clear()` plus `_load_builds_cached.cache_clear()`. No scoring logic changes needed. Auto-save fights schema rigidity; prefer explicit "save and validate" with client-side draft state.
+- **Open questions:** Conflict UX when an incoming `refresh-builds` changes an archetype the user edited (recommended for v1: a simple "your edit may differ from the refreshed version" banner). Export/share format — punt to community pack import (see Maybe entry).
+- **Dependencies / blocks:** Building this first unblocks Catalog Pack Import for free (pack import = bulk-create into `user_builds/`). Design the resolver-layer refactor with the pack tier slot in mind upfront.
+- **How to test:** Round-trip a custom archetype write → validate → load → score against; confirm bundled catalog still wins when user catalog disabled; confirm `refresh-builds` does not silently overwrite user edits.
+
+### Maybe — Pending demand or unblock
+
+- **Cross-Run Analytics Dashboard** — Aggregate stats (win rate by hero/archetype, score-by-phase, gold curves, day-of-death) read-only over existing tables. ~3-5 days (M). Requires a chart-library decision (Chart.js CDN vs inline-bundle vs hand-rolled SVG); defer `runs.patch_label` and `runs.archetype` columns to v2.
+- **Drill / What-If Mode** — From a completed run, pick any decision and score the alternative; show score delta. `_score_single_decision` is already cleanly parameterized; cap scope to single-decision delta against the offered set only — no sequence cascade.
+- **OBS Browser Source** — Stripped HTML view at `/obs/coach` with a transparent background, sized for stream overlays. Polls existing `/api/overlay/state` — most data already available. ~1 day. Optional Discord rich presence deferred separately due to reconnect-loop fragility.
+- **Catalog Pack Import** — Import community-authored multi-hero catalog packs (URL paste or file drop), validated and switchable as a unit. ~5-8 days (M). Distinct from Local Build Override (immutable bundle vs per-hero edit), but should land after Override's resolver-layer refactor to avoid duplicating the catalog-tier work.
+- **Crash & Auto-Diagnostics Reporter** — Auto-package session log + last N decisions on unhandled exception or watcher silence; pre-fill a GitHub issue URL (no auth needed). ~4-6 hours. Builds on existing `export-diagnostics`. Smallest item in the backlog.
+- **Opponent Build Inference** — Classify opponent boards from Mono snapshots, surface PvP meta-tracker. **Validity gate first:** schema and Frida hooks already exist (`combat_results.opponent_board` column + `_CAPTURE_OPPONENT_BOARD` flag, currently disabled by default at `capture_mono.py` ~L2385). Ship a 1-run validation spike with `--include-opponent-board` to confirm fill rate before committing to ~2-3 days of classifier + dashboard work.
+
+**Items reviewed and dropped:** Run Export & Share (no immediate consumer), Replay Scrubber (low marginal value over existing decision detail expansion), Coaching Diff vs Reference Run (depends on dropped Export & Share, alignment heuristic make-or-break risk).
