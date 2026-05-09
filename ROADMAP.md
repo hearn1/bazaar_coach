@@ -37,28 +37,6 @@ How to test:
 - Verify `scorer.py` loads the new catalog instead of falling back to no-score behavior.
 - Verify overlay Coach tab displays the new hero's archetypes and condition items.
 
-### Refresh-Builds Player Surface - Partial
-
-Goal: surface `refresh-builds` in player-facing docs/UI as the lightweight catalog-pull mechanism for players.
-
-Status: CLI support and README player instructions are wired. There is no in-app route/button, automatic startup refresh, update notification, or release-note surface yet.
-
-Relevant files:
-- `refresh_builds.py`
-- `tracker.py`
-- `web/static/index.html`
-- player-facing release/docs surfaces
-
-Implementation notes:
-- Keep refresh optional and non-blocking.
-- Preserve the existing validation behavior: incompatible or malformed refreshed catalogs are ignored in favor of the bundled copy.
-- Avoid making normal app startup depend on GitHub availability.
-
-How to test:
-- A tracker install with no network access still loads the bundled builds for every supported hero.
-- `refresh-builds` with GitHub unreachable exits non-zero and logs a warning without touching the writable copy.
-- Schema validation failure on a fetched file discards the fetch and leaves the existing writable copy in place.
-
 ### Automated Builds Refresh Pipeline - Open
 
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".

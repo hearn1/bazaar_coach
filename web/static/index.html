@@ -349,6 +349,63 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
   padding: 3px 9px; cursor: pointer; font-size: 0.75rem;
 }
 .update-notice .dismiss-update:hover { color: var(--text-primary); border-color: var(--blue); }
+.update-notice.status-updated {
+  background: var(--green-bg); border-color: var(--green-border);
+}
+.update-notice.status-unchanged {
+  background: rgba(255,255,255,0.04); border-color: var(--border-lite);
+}
+.update-notice.status-failed {
+  background: var(--red-bg); border-color: var(--red-border);
+}
+.build-panel {
+  display: none; margin: -6px 0 20px; padding: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: rgba(26,30,42,0.72);
+}
+.build-panel.visible { display: block; }
+.build-panel-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.build-panel-head h3 {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--accent); margin-right: auto;
+}
+.build-refresh-btn {
+  font-family: var(--font-body); font-size: 0.76rem; font-weight: 600;
+  color: var(--accent); background: rgba(201,164,74,0.08);
+  border: 1px solid var(--accent-dim); border-radius: var(--radius);
+  padding: 5px 12px; cursor: pointer;
+}
+.build-refresh-btn:hover { background: rgba(201,164,74,0.15); border-color: var(--accent); }
+.build-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.build-status {
+  display: none; padding: 8px 10px; margin-bottom: 10px;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  color: var(--text-secondary); font-size: 0.82rem;
+}
+.build-status.visible { display: block; }
+.build-status.status-updated { color: var(--green); background: var(--green-bg); border-color: var(--green-border); }
+.build-status.status-unchanged { color: var(--text-secondary); background: rgba(255,255,255,0.03); border-color: var(--border-lite); }
+.build-status.status-failed { color: var(--red); background: var(--red-bg); border-color: var(--red-border); }
+.build-notes {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 6px;
+}
+.build-note {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 9px 10px;
+}
+.build-note .hero {
+  font-weight: 700; color: var(--text-primary); margin-bottom: 2px;
+}
+.build-note .meta {
+  font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted);
+  margin-bottom: 5px;
+}
+.build-note .note {
+  font-size: 0.78rem; color: var(--text-secondary); line-height: 1.35;
+}
 </style>
 </head>
 <body>
@@ -358,10 +415,21 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
     <h1>BAZAAR TRACKER</h1>
     <span class="subtitle" id="header-sub">Loading...</span>
     <button class="ask-ai-btn" id="ask-ai-btn" onclick="askAI()" style="margin-left:auto" disabled>Ask AI &#8599;</button>
+    <button class="history-toggle" id="builds-btn" onclick="toggleBuildPanel()">Build Data</button>
     <button class="history-toggle" id="history-btn" onclick="toggleHistory()">Run History</button>
   </header>
   <div class="toast" id="toast"></div>
   <div class="update-notice" id="update-notice"></div>
+  <div class="update-notice" id="build-refresh-notice"></div>
+
+  <div class="build-panel" id="build-panel">
+    <div class="build-panel-head">
+      <h3>Build Data</h3>
+      <button class="build-refresh-btn" id="refresh-builds-btn" onclick="refreshBuilds()">Refresh Builds</button>
+    </div>
+    <div class="build-status" id="build-refresh-status"></div>
+    <div class="build-notes" id="build-notes"></div>
+  </div>
 
   <!-- Run history (hidden by default) -->
   <div class="run-history" id="run-history">
@@ -400,6 +468,8 @@ let allDecisions = [];
 let allRuns = [];
 let activeFilter = 'all';
 let currentSummary = null;
+let buildRefreshPoll = null;
+let buildNoticeDismissed = false;
 
 const ICONS = {
   optimal:'✅', good:'👍', situational:'⚠️', suboptimal:'❌', warning:'🔶', info:'ℹ️',
@@ -463,9 +533,125 @@ async function dismissUpdate(version) {
   if (el) el.classList.remove('visible');
 }
 
-// ── Boot: auto-load latest run ───────────────────────────────────
+// Build catalog refresh
+function buildRefreshMessage(result) {
+  if (!result) return '';
+  const counts = `${result.updated || 0} updated, ${result.unchanged || 0} unchanged, ${result.skipped || 0} failed`;
+  if (result.status === 'checking') return 'Checking build catalogs...';
+  if (result.status === 'updated') return `Build catalogs refreshed: ${counts}.`;
+  if (result.status === 'unchanged') return `Build catalogs already current: ${counts}.`;
+  if (result.status === 'failed') return `Build refresh failed: ${counts}. Bundled catalogs are still available.`;
+  return counts;
+}
+
+function renderBuildRefreshNotice(status) {
+  const el = document.getElementById('build-refresh-notice');
+  if (!el || buildNoticeDismissed) return;
+  const result = status && status.last_result;
+  if (!result || result.status === 'checking') return;
+  el.className = `update-notice status-${result.status}`;
+  el.innerHTML = `
+    <strong>${esc(result.status === 'failed' ? 'Build refresh failed' : result.status === 'updated' ? 'Builds refreshed' : 'Builds current')}</strong>
+    <span>${esc(buildRefreshMessage(result))}</span>
+    <button class="dismiss-update" onclick="buildNoticeDismissed=true; document.getElementById('build-refresh-notice').classList.remove('visible')">Dismiss</button>`;
+  el.classList.add('visible');
+}
+
+function renderBuildPanel(status) {
+  const result = status && status.last_result;
+  const statusEl = document.getElementById('build-refresh-status');
+  const notesEl = document.getElementById('build-notes');
+  const btn = document.getElementById('refresh-builds-btn');
+  if (btn) btn.disabled = !!(status && status.running);
+
+  if (statusEl) {
+    const statusName = result ? result.status : 'unchanged';
+    statusEl.className = `build-status visible status-${statusName}`;
+    statusEl.textContent = result
+      ? buildRefreshMessage(result)
+      : 'Build catalogs are loaded from the bundled install unless refreshed catalogs are present.';
+  }
+
+  if (!notesEl) return;
+  const catalogs = (status && status.catalogs) || [];
+  if (!catalogs.length) {
+    notesEl.innerHTML = '<div class="empty-state">No build catalogs found.</div>';
+    return;
+  }
+  notesEl.innerHTML = catalogs.map(c => {
+    const meta = [
+      c.last_updated || 'no date',
+      c.source || 'unknown source',
+      c.season ? `season ${c.season}` : '',
+    ].filter(Boolean).join(' | ');
+    return `<div class="build-note">
+      <div class="hero">${esc(c.hero || '?')}</div>
+      <div class="meta">${esc(meta)}</div>
+      <div class="note">${esc(c.notes || 'No release notes for this catalog.')}</div>
+    </div>`;
+  }).join('');
+}
+
+async function loadBuildRefreshStatus({ notify=false } = {}) {
+  try {
+    const status = await api('/api/builds/refresh/status');
+    renderBuildPanel(status);
+    if (notify) renderBuildRefreshNotice(status);
+    if (status.running) {
+      if (buildRefreshPoll) clearTimeout(buildRefreshPoll);
+      buildRefreshPoll = setTimeout(() => loadBuildRefreshStatus({ notify }), 1000);
+    }
+    return status;
+  } catch(e) {
+    const statusEl = document.getElementById('build-refresh-status');
+    if (statusEl) {
+      statusEl.className = 'build-status visible status-failed';
+      statusEl.textContent = `Build refresh status unavailable: ${e.message}`;
+    }
+    return null;
+  }
+}
+
+function toggleBuildPanel(force) {
+  const el = document.getElementById('build-panel');
+  if (!el) return;
+  const show = typeof force === 'boolean' ? force : !el.classList.contains('visible');
+  el.classList.toggle('visible', show);
+  document.getElementById('builds-btn').textContent = show ? 'Hide Builds' : 'Build Data';
+  if (show) {
+    loadBuildRefreshStatus();
+    if (location.pathname !== '/builds') history.replaceState(null, '', '/builds');
+  } else if (location.pathname === '/builds') {
+    history.replaceState(null, '', '/');
+  }
+}
+
+async function refreshBuilds() {
+  const btn = document.getElementById('refresh-builds-btn');
+  if (btn) btn.disabled = true;
+  buildNoticeDismissed = false;
+  try {
+    const response = await fetch('/api/builds/refresh', { method: 'POST' });
+    if (!response.ok) throw new Error(`${response.status}`);
+    const status = await response.json();
+    renderBuildPanel(status);
+    renderBuildRefreshNotice(status);
+    loadBuildRefreshStatus({ notify: true });
+  } catch(e) {
+    const statusEl = document.getElementById('build-refresh-status');
+    if (statusEl) {
+      statusEl.className = 'build-status visible status-failed';
+      statusEl.textContent = `Build refresh failed to start: ${e.message}`;
+    }
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Boot: auto-load latest run
 async function boot() {
   checkUpdates();
+  if (location.pathname === '/builds') toggleBuildPanel(true);
+  loadBuildRefreshStatus({ notify: true });
   try {
     allRuns = await api('/api/runs');
     if (!allRuns.length) {

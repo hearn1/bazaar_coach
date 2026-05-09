@@ -25,6 +25,7 @@ import sqlite3
 import argparse
 import threading
 import sys
+from datetime import datetime, timezone
 from typing import Optional, Callable
 from pathlib import Path
 
@@ -36,6 +37,8 @@ if str(ROOT_DIR) not in sys.path:
 
 import card_cache
 import first_run
+import refresh_builds
+import scorer
 import update_checker
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -54,6 +57,11 @@ from web.card_images import IMAGE_DIR as CARD_IMAGE_DIR, lookup_image_url
 DEFAULT_PORT = 5555
 DB_PATH: Optional[Path] = None
 _shutdown_callback: Optional[Callable] = None
+_build_refresh_lock = threading.Lock()
+_build_refresh_state = {
+    "running": False,
+    "last_result": None,
+}
 
 app = Flask(
     __name__,
@@ -147,6 +155,11 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/builds")
+def builds_page():
+    return send_from_directory(app.static_folder, "index.html")
+
+
 @app.route("/overlay")
 def overlay_page():
     return send_from_directory(app.static_folder, "overlay.html")
@@ -225,6 +238,99 @@ def api_builds_items(hero: str):
         if url:
             result[item_name] = url
     return jsonify(result)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _build_catalog_notes() -> list[dict]:
+    catalogs = []
+    for hero_key in sorted(scorer.CATALOG_FILENAMES):
+        hero = hero_key.title()
+        source = scorer.catalog_source_status(hero)
+        build_data = scorer.load_builds(hero)
+        catalogs.append({
+            "hero": build_data.get("hero") or hero,
+            "filename": source["filename"],
+            "source": source["source"],
+            "last_updated": source.get("last_updated"),
+            "season": build_data.get("season"),
+            "notes": build_data.get("notes") or "",
+        })
+    return catalogs
+
+
+def _build_refresh_status_payload() -> dict:
+    with _build_refresh_lock:
+        running = bool(_build_refresh_state["running"])
+        last_result = _build_refresh_state["last_result"]
+    return {
+        "running": running,
+        "last_result": last_result,
+        "catalogs": _build_catalog_notes(),
+    }
+
+
+def _finish_build_refresh(trigger: str, payload: dict) -> None:
+    payload = dict(payload)
+    payload["trigger"] = trigger
+    payload["checked_at"] = _utc_now_iso()
+    with _build_refresh_lock:
+        _build_refresh_state["running"] = False
+        _build_refresh_state["last_result"] = payload
+
+
+def _run_build_refresh(trigger: str) -> None:
+    try:
+        results = refresh_builds.refresh_builds()
+        payload = refresh_builds.summarize_results(results)
+    except Exception as exc:
+        payload = {
+            "ok": False,
+            "status": "failed",
+            "updated": 0,
+            "unchanged": 0,
+            "skipped": len(scorer.CATALOG_FILENAMES),
+            "results": [],
+            "error": str(exc),
+        }
+    _finish_build_refresh(trigger, payload)
+
+
+def _start_build_refresh(trigger: str) -> bool:
+    with _build_refresh_lock:
+        if _build_refresh_state["running"]:
+            return False
+        _build_refresh_state["running"] = True
+        _build_refresh_state["last_result"] = {
+            "ok": None,
+            "status": "checking",
+            "updated": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "results": [],
+            "trigger": trigger,
+            "checked_at": _utc_now_iso(),
+        }
+    threading.Thread(
+        target=_run_build_refresh,
+        args=(trigger,),
+        daemon=True,
+        name=f"build-refresh-{trigger}",
+    ).start()
+    return True
+
+
+@app.route("/api/builds/refresh/status")
+def api_builds_refresh_status():
+    return jsonify(_build_refresh_status_payload())
+
+
+@app.route("/api/builds/refresh", methods=["POST"])
+def api_builds_refresh():
+    _start_build_refresh("manual")
+    return jsonify(_build_refresh_status_payload()), 202
 
 
 # ── Routes — overlay ──────────────────────────────────────────────────────────
@@ -447,10 +553,12 @@ def _run_production_server(port: int):
     serve(app, host="127.0.0.1", port=port, threads=8, _quiet=True)
 
 
-def start_web_server(port=DEFAULT_PORT, db_path=None, background=True):
+def start_web_server(port=DEFAULT_PORT, db_path=None, background=True, auto_refresh_builds=True):
     global DB_PATH
     if db_path:
         DB_PATH = Path(db_path)
+    if auto_refresh_builds:
+        _start_build_refresh("startup")
     if background:
         t = threading.Thread(target=lambda: _run_production_server(port), daemon=True, name="web-server")
         t.start()

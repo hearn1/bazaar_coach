@@ -51,7 +51,7 @@ venv312\Scripts\python.exe tracker.py refresh-builds
 ```
 This pulls the latest curator-approved build catalogs from GitHub into your tracker install, no reinstall needed.
 
-Run it after catalog updates are published. There is no automatic notification yet, so you will usually hear about updates in release notes or community channels.
+Players can also open **Build Data** in the dashboard and click **Refresh Builds**. Normal app startup starts the same refresh logic in the background without blocking play or depending on GitHub availability. The Build Data panel shows refreshed/unchanged/failed status plus the build-data notes bundled with each catalog.
 
 Expected success output looks like:
 ```

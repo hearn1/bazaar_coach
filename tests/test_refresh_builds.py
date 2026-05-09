@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -177,6 +178,67 @@ def test_refresh_builds_unchanged_content_does_not_write(tmp_path, monkeypatch):
 
     assert code == 0
     assert destination.stat().st_mtime_ns == original_mtime
+
+
+def test_refresh_builds_summary_statuses():
+    assert refresh_builds.summarize_results([
+        refresh_builds.HeroRefreshResult("Karnok", "karnok_builds.json", "updated", "updated")
+    ])["status"] == "updated"
+    assert refresh_builds.summarize_results([
+        refresh_builds.HeroRefreshResult("Karnok", "karnok_builds.json", "unchanged", "unchanged")
+    ])["status"] == "unchanged"
+    failed = refresh_builds.summarize_results([
+        refresh_builds.HeroRefreshResult("Karnok", "karnok_builds.json", "skipped", "offline")
+    ])
+    assert failed["status"] == "failed"
+    assert failed["ok"] is False
+
+
+def test_build_refresh_route_reports_manual_result(monkeypatch):
+    import web.server as server
+
+    with server._build_refresh_lock:
+        server._build_refresh_state["running"] = False
+        server._build_refresh_state["last_result"] = None
+
+    monkeypatch.setattr(
+        server.refresh_builds,
+        "refresh_builds",
+        lambda: [
+            refresh_builds.HeroRefreshResult(
+                "Karnok",
+                "karnok_builds.json",
+                "updated",
+                "updated: karnok_builds.json",
+            )
+        ],
+    )
+    monkeypatch.setattr(server, "_build_catalog_notes", lambda: [{
+        "hero": "Karnok",
+        "filename": "karnok_builds.json",
+        "source": "writable",
+        "last_updated": "2026-05-04",
+        "season": 1,
+        "notes": "Route test notes.",
+    }])
+
+    client = server.app.test_client()
+    response = client.post("/api/builds/refresh")
+
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert "catalogs" in payload
+
+    for _ in range(50):
+        payload = client.get("/api/builds/refresh/status").get_json()
+        if not payload["running"]:
+            break
+        time.sleep(0.01)
+
+    assert payload["running"] is False
+    assert payload["last_result"]["status"] == "updated"
+    assert payload["last_result"]["updated"] == 1
+    assert payload["catalogs"][0]["notes"] == "Route test notes."
 
 
 def test_atomic_write_failure_leaves_no_partial_file(tmp_path, monkeypatch):

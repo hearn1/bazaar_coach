@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import requests
@@ -102,6 +102,8 @@ def refresh_builds(*, out_dir: Path | None = None) -> list[HeroRefreshResult]:
         level = "WARNING" if result.status == "skipped" else "INFO"
         print(f"[Builds] {level} {filename}: {result.message}")
         results.append(result)
+    if any(result.status == "updated" for result in results):
+        scorer._load_builds_cached.cache_clear()
     return results
 
 
@@ -110,6 +112,25 @@ def _summary_counts(results: list[HeroRefreshResult]) -> tuple[int, int, int]:
     unchanged = sum(1 for result in results if result.status == "unchanged")
     skipped = sum(1 for result in results if result.status == "skipped")
     return updated, unchanged, skipped
+
+
+def summarize_results(results: list[HeroRefreshResult]) -> dict:
+    """Return a UI/API-friendly summary while preserving CLI semantics."""
+    updated, unchanged, skipped = _summary_counts(results)
+    if skipped:
+        status = "failed"
+    elif updated:
+        status = "updated"
+    else:
+        status = "unchanged"
+    return {
+        "ok": skipped == 0,
+        "status": status,
+        "updated": updated,
+        "unchanged": unchanged,
+        "skipped": skipped,
+        "results": [asdict(result) for result in results],
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
