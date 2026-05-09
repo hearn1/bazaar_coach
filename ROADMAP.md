@@ -37,11 +37,11 @@ How to test:
 - Verify `scorer.py` loads the new catalog instead of falling back to no-score behavior.
 - Verify overlay Coach tab displays the new hero's archetypes and condition items.
 
-### Refresh-Builds Player Surface - Open
+### Refresh-Builds Player Surface - Partial
 
 Goal: surface `refresh-builds` in player-facing docs/UI as the lightweight catalog-pull mechanism for players.
 
-Status: CLI support is wired. There is no automatic startup refresh and no UI button yet.
+Status: CLI support and README player instructions are wired. There is no in-app route/button, automatic startup refresh, update notification, or release-note surface yet.
 
 Relevant files:
 - `refresh_builds.py`
@@ -63,21 +63,21 @@ How to test:
 
 Goal: a scheduled job that fetches fresh build data, regenerates `<hero>_builds.json`, and opens a PR with the diff for human review. Long-term the curator's role becomes "review the PR" instead of "run the enricher and edit JSON".
 
-Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: local_dry_run` after controlled validation. The GitHub Actions cron schedule already exists, so scheduled and manual `local_dry_run` runs may fetch sources, evaluate, write diff/proposal artifacts, and upload review artifacts, but they do not save or commit stats sidecars and do not mutate tracker catalogs. `shadow_cron` remains disabled until the LLM/no-LLM/provider strategy for classifier usage is resolved or explicitly waived and the scheduled Actions/stats-sidecar acceptance gates are passed. `live_cron` remains disabled until a later manual gate with accumulated healthy shadow history.
+Status: implementation work lives in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo and has been promoted to `phase: shadow_cron` with `dry_run: true`. The GitHub Actions cron schedule exists. Scheduled `shadow_cron` runs default to deterministic `no_llm_shadow`, may fetch sources, evaluate, write diff/proposal artifacts, upload review artifacts, and commit `stats/<hero>_stats.json` sidecars in bazaar-builds on `main`. They still do not mutate tracker catalogs or open tracker PRs. `live_cron` remains disabled until a later manual gate with accumulated healthy shadow history and semantic catalog-review readiness.
 
 Promotion evidence:
 - Python 3.12.10 temporary environment used.
 - Focused pipeline tests passed: `59 passed in 0.39s`.
+- Current tracked bazaar-builds unit suite: `119 passed` with `python -m pytest -q tests`; bare repo-root pytest can collect generated artifacts and fail before the suite runs.
 - All supported heroes completed `local_dry_run` with `--mock-llm`, live source fetches, temp-only artifacts, and exit code 0: Dooley, Karnok, Mak, Pygmalien, and Vanessa.
 - Live source fetches succeeded for three sources: bazaar-builds.net `2026-W19`, bazaardb `14.0 (Hotfix May 7)`, Mobalytics `v541`. This is source count, not three temporal windows. Markdown source-health tables are summaries; the diff JSON is the fuller source-health review artifact when per-source observations or diagnostics matter.
 - Each hero produced diff JSON and proposal markdown. No real LLM/API calls occurred, and no checked-in pipeline state, catalog, stats sidecar, or tracker catalog files mutated during validation.
 - Mock-mode proposals are operational validation only, not catalog-acceptance evidence. Support-only classifications, low confidence, duplicate/near-duplicate proposals, and missing evidence refs/sample counts remain normal curator review items rather than pipeline failures.
 
-LLM classifier follow-up:
-- Handle this before any `shadow_cron` promotion unless the operator explicitly waives the prerequisite with the risk recorded.
+Classifier follow-up:
+- Deterministic/no-LLM shadow mode is implemented and is the scheduled `shadow_cron` default.
 - ChatGPT Plus/Pro subscriptions do not provide reusable OpenAI API billing for GitHub Actions. OpenAI API usage requires separate API billing or credits and should be rechecked against current official pricing/model docs at implementation time.
-- Decide the classifier strategy: deterministic/no-LLM, existing Anthropic/Claude wiring, an alternate provider such as Gemini or another free/lower-cost provider, provider abstraction before hosted usage, or an explicit operator waiver for `shadow_cron`.
-- Short-term recommendation: add a deterministic/no-LLM classification mode so dry runs and CI are not blocked by provider billing or secrets. Preserve existing catalog buckets, classify new secondary-only items as `support` or `classification_pending`, and surface uncertain role decisions for curator review.
+- Decide the semantic classifier strategy before `live_cron` or catalog-acceptance automation: existing Anthropic/Claude wiring, an alternate provider such as Gemini or another free/lower-cost provider, provider abstraction before hosted usage, or an explicit operator waiver with the risk recorded.
 - Use bazaardb `CORE ITEMS` / `SUPPORTING ITEMS` section metadata only after hero/source scoping has been validated as safe.
 - Keep the classifier provider pluggable: `deterministic`, existing Anthropic/Claude wiring, an alternate hosted option such as Gemini to investigate for low-volume classification, and a later OpenAI API option if separate billing is acceptable.
 - If Gemini or another free/lower-cost hosted provider is evaluated, verify current free quota, rate limits, data-use terms, model names, billing rules, and structured JSON reliability at implementation time. No alternate provider is selected yet.
@@ -85,14 +85,16 @@ LLM classifier follow-up:
 - Waiting for Anthropic credits has the least implementation churn if existing Claude wiring is otherwise healthy, but it does not unblock unpaid/local dry-run operation.
 
 How to test:
-- Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation. Remember that scheduled workflow runs default to the real classifier because `--mock-llm` is only supplied by manual dispatch input or by changing the workflow/code.
-- Shadow readiness: review all-hero local dry-run artifacts, confirm required source-health fields are clear, confirm no checked-in mutation during local dry runs, resolve or explicitly waive the classifier strategy prerequisite, accept that `shadow_cron` writes and commits stats sidecars in bazaar-builds while still avoiding tracker PR/catalog mutation, and keep a documented rollback path to `local_dry_run` or `implementation`.
-- Before flipping to `shadow_cron`: confirm the Actions schedule on `main` is intended; decide deterministic/no-LLM, Claude, an alternate provider such as Gemini or another free/lower-cost provider, provider abstraction first, or an explicit operator waiver; confirm any required secret/API/cost readiness; confirm stats sidecar commits are accepted; validate the chosen classifier strategy from the workflow path or explicitly waive validation; confirm the rollback path.
+- Local dry run: run selected heroes from a Python 3.12 virtualenv with `--mock-llm` or `--classifier-mode no_llm_shadow`; confirm artifacts are produced without catalog, tracker, or stats-sidecar mutation.
+- Shadow monitoring: review scheduled/manual shadow artifacts, confirm source-health fields are clear, confirm `classification_mode: no_llm_shadow`, `semantic_classification: false`, and `llm_provider: none`, and confirm stats sidecar commits in bazaar-builds never mutate tracker catalogs or open tracker PRs.
+- Before flipping to `live_cron`: confirm at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output; review source-health/stats history; decide or explicitly waive the semantic classifier/provider strategy; confirm any required secret/API/cost readiness; confirm rolling tracker PR behavior and rollback path.
 - Live readiness: require at least 6 healthy bazaardb patch windows and at least 60 calendar days of shadow output before enabling rolling tracker PRs.
 
 ### Build Archetype Images - Open
 
 Goal: show a single representative image per build archetype in the overlay/dashboard rather than attempting per-card inline images. Drop the per-card image pipeline.
+
+Status: current implementation still renders per-card item thumbnails in overlay/review/dashboard. Replacing that with archetype images requires catalog schema/API/UI work, not just adding image files.
 
 Relevant files:
 - `<hero>_builds.json` - add optional `image` field per archetype
