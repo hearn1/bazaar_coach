@@ -26,7 +26,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=commandline dialog
 UninstallDisplayIcon={app}\BazaarTracker.exe
 SetupLogging=yes
 

@@ -11,6 +11,28 @@ Completed roadmap items are removed from this file rather than kept as checked-o
 
 Manual catalog curation validation has moved out of the roadmap. Future curation runs should distinguish safe no-op workflow validation from evidence-bearing manual catalog curation validation. Evidence-bearing validation requires post fetch evidence, normally via `--fetch-posts`, or an explicitly evidence-backed empty result after fetch attempts.
 
+## Alpha v0.2 Punch List
+
+Items from prod-readiness verification. P0 = release-blocking, P1 = release-eroding, P2 = post-release / `live_cron` prep.
+
+10 items closed 2026-05-09 (closed in 4338965).
+
+### P0 - Release-blocking
+
+- **Overlay 404 on empty DB.** Fresh installs hit `/api/overlay/state` → 404 → `fetchState` throws → `isNoRunsState` stays falsy → `renderError("Request failed with status 404")`. Fix: return 200 with `{state: "no_runs"}` from `web/server.py:348-354`, or set `overlayState` to the error object before throwing in `fetchState`. (`web/static/overlay.html`)
+
+### P1 - Release-eroding
+
+- **Unknown hero silently fails.** `scorer.py:94-101` constructs a non-existent `<slug>_builds.json` path for unknown heroes; downstream fails with file-not-found instead of a "no catalog for HeroX" UI banner. Add a whitelist check against `CATALOG_FILENAMES`.
+- **`auto_refresh_builds=True` hardcoded** (`web/server.py:556-561`, `tracker.py:319-323`). Add `--no-refresh-builds` CLI flag for offline/paranoid players.
+- **`/api/builds/items/<hero>` swallows all exceptions to `{}`** (`web/server.py:229-233`). Overlay degrades silently to letter-initial fallbacks. Log to session log and return an error key the overlay can render.
+
+### P2 - Post-release / live_cron prep
+
+- **Per-hero refresh failure messages invisible in dashboard** (`web/static/index.html:560-593`). Only aggregate counts show. Render `results[].message` per hero in the build panel.
+- **Mid-run schema bump silently reverts to bundled.** `BUILDS_SCHEMA_MAX=1` (`scorer.py:36-37`) is tight. Loosen to `[1, 2]` once schema v2 lands, or add a UI banner when a refresh is skipped due to schema mismatch.
+- **Console window visible during play** (`packaging/pyinstaller/BazaarTracker.spec:76` `console=True`). Switch to `console=False` and pipe stdout/stderr to the existing session log file.
+
 ## Open Feature Work
 
 ### Multi-Hero Support - On Hold

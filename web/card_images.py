@@ -1,8 +1,10 @@
 """Card image manifest loader and lookup helpers.
 
 The manifest is built by ``extract_bazaar_bundle_pngs.py --cards-only`` and
-lives at ``static_cache/images/manifest.json``. This module loads it once on
-first access and caches it in memory. Restart the server to pick up a refresh.
+lives at ``static_cache/images/manifest.json``. This module caches the manifest
+in memory and reloads it automatically when the file's mtime changes (e.g. after
+``tracker.py refresh-images`` runs in a separate process). No server restart is
+required to pick up new entries.
 """
 
 from __future__ import annotations
@@ -78,6 +80,7 @@ NAME_ALIASES: dict[str, str] = {
 
 _lock = threading.Lock()
 _manifest_cache: Optional[dict] = None
+_manifest_mtime: Optional[float] = None
 
 
 def normalize_card_name(value: str) -> str:
@@ -85,17 +88,54 @@ def normalize_card_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
 
 
-def _load_manifest() -> dict:
-    """Load and memoize the manifest. Returns {'by_card_key': {...}} or empty."""
-    global _manifest_cache
-    if _manifest_cache is not None:
-        return _manifest_cache
+def invalidate_manifest_cache() -> None:
+    """Clear the in-memory manifest cache under the module lock.
+
+    The next call to ``_load_manifest`` (or any lookup function) will reload
+    the manifest from disk.  This is called automatically when the manifest
+    file's mtime changes, but can also be invoked directly after an in-process
+    refresh.
+    """
+    global _manifest_cache, _manifest_mtime
     with _lock:
-        if _manifest_cache is not None:
+        _manifest_cache = None
+        _manifest_mtime = None
+
+
+def _load_manifest() -> dict:
+    """Load and memoize the manifest, reloading when the file's mtime changes.
+
+    The outer check is a cheap fast-path: if the cache is populated and the
+    file mtime has not changed, return immediately without acquiring the lock.
+    Under the lock we re-check both conditions before doing any I/O.
+
+    Returns ``{'by_card_key': {...}}`` (possibly empty) — never ``None``.
+    """
+    global _manifest_cache, _manifest_mtime
+
+    # Fast-path: cache present and mtime unchanged.
+    try:
+        current_mtime: Optional[float] = MANIFEST_PATH.stat().st_mtime if MANIFEST_PATH.is_file() else None
+    except OSError:
+        current_mtime = None
+
+    if _manifest_cache is not None and current_mtime == _manifest_mtime:
+        return _manifest_cache
+
+    with _lock:
+        # Re-check under the lock.
+        try:
+            current_mtime = MANIFEST_PATH.stat().st_mtime if MANIFEST_PATH.is_file() else None
+        except OSError:
+            current_mtime = None
+
+        if _manifest_cache is not None and current_mtime == _manifest_mtime:
             return _manifest_cache
-        if not MANIFEST_PATH.is_file():
+
+        if current_mtime is None:
             print(f"[CardImages] manifest not found at {MANIFEST_PATH}")
             _manifest_cache = {"by_card_key": {}}
+            _manifest_mtime = None
             return _manifest_cache
         try:
             data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -107,6 +147,7 @@ def _load_manifest() -> dict:
             print(f"[CardImages] manifest load failed: {exc}")
             data = {"by_card_key": {}}
         _manifest_cache = data
+        _manifest_mtime = current_mtime
         return _manifest_cache
 
 

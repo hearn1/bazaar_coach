@@ -135,3 +135,37 @@ def static_cache_dir() -> Path:
 
 def image_cache_dir() -> Path:
     return static_cache_dir() / "images"
+
+
+_PLAYER_LOG_SUFFIX = ("Tempo Storm", "The Bazaar", "Player.log")
+
+
+def find_player_log() -> Path:
+    """Return the first existing Player.log candidate, or candidate #1 when none exist.
+
+    Search order (handles relocated AppData and OneDrive-redirected profiles):
+    1. LOCALAPPDATA/../LocalLow/...
+    2. USERPROFILE/AppData/LocalLow/...
+    3. Path.home()/AppData/LocalLow/...
+    4. ./Player.log (CWD fallback)
+    """
+    candidates: list[Path] = []
+
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+    if localappdata:
+        candidates.append(Path(localappdata, "..", "LocalLow", *_PLAYER_LOG_SUFFIX))
+
+    userprofile = os.environ.get("USERPROFILE", "")
+    if userprofile:
+        candidates.append(Path(userprofile, "AppData", "LocalLow", *_PLAYER_LOG_SUFFIX))
+
+    candidates.append(Path(str(Path.home()), "AppData", "LocalLow", *_PLAYER_LOG_SUFFIX))
+    candidates.append(Path("Player.log"))
+
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.is_file():
+            return resolved
+
+    # Fall back to candidate #1 (resolved) so callers get a useful probable path.
+    return candidates[0].resolve()

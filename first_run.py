@@ -35,15 +35,7 @@ def _step(step_id: str, label: str, status: str, message: str, **details) -> Set
 
 
 def find_player_log_path() -> Path:
-    candidates = [
-        Path.home() / "AppData" / "LocalLow" / "Tempo Storm" / "The Bazaar" / "Player.log",
-        Path("Player.log"),
-    ]
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved.exists():
-            return resolved
-    return candidates[0].resolve()
+    return app_paths.find_player_log()
 
 
 def _port_available(port: int) -> bool:
