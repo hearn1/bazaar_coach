@@ -48,17 +48,24 @@ shutdown_event = threading.Event()
 
 class TeeStream:
     def __init__(self, *streams):
-        self.streams = streams
-        self.encoding = getattr(streams[0], "encoding", "utf-8")
+        self.streams = tuple(stream for stream in streams if stream is not None)
+        self.encoding = next(
+            (getattr(stream, "encoding", None) for stream in self.streams if getattr(stream, "encoding", None)),
+            "utf-8",
+        )
 
     def write(self, data):
         for stream in self.streams:
-            stream.write(data)
+            write = getattr(stream, "write", None)
+            if write:
+                write(data)
         return len(data)
 
     def flush(self):
         for stream in self.streams:
-            stream.flush()
+            flush = getattr(stream, "flush", None)
+            if flush:
+                flush()
 
     def isatty(self):
         primary = self.streams[0] if self.streams else None
@@ -215,11 +222,10 @@ def _shutdown(mono_proc, log_handle, original_stdout, original_stderr):
     settings.save()
     
     # Step 7-8: Restore streams and close log
+    print("[Tracker] Shutdown complete.")
     sys.stdout = original_stdout
     sys.stderr = original_stderr
     log_handle.close()
-    
-    print("[Tracker] Shutdown complete.")
 
 
 def main():
@@ -293,6 +299,8 @@ def main():
                         help="Process name for capture_mono to attach to")
     parser.add_argument("--no-overlay", action="store_true",
                         help="Do not launch the overlay window")
+    parser.add_argument("--no-refresh-builds", action="store_true",
+                        help="Do not refresh build catalogs when the web server starts")
     args = parser.parse_args()
 
     mono_proc = None
@@ -320,6 +328,7 @@ def main():
             port=DEFAULT_WEB_PORT,
             db_path=app_paths.db_path(),
             background=True,
+            auto_refresh_builds=not args.no_refresh_builds,
         )
         
         # Register the shutdown callback so Flask endpoint can trigger shutdown
