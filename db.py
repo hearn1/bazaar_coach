@@ -20,6 +20,7 @@ import json
 import queue
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import app_paths
@@ -423,6 +424,67 @@ def _upsert_run_impl(session_id: str, account_id: str, hero: str, started_at: st
     return run_id
 
 
+def prune_old_runs(retention_days: int, _now: Optional[datetime] = None) -> dict:
+    """Delete completed runs older than retention_days days and their children.
+
+    Guard: if retention_days < 90, returns immediately with skipped=True.
+    Only deletes from runs, decisions, and combat_results — not api_* tables.
+
+    Args:
+        retention_days: Minimum age in days before a completed run is deleted.
+        _now: Optional datetime for testing; defaults to UTC now.
+
+    Returns:
+        Dict with deleted_runs, deleted_decisions, deleted_combats, cutoff, skipped.
+    """
+    if retention_days < 90:
+        return {
+            "deleted_runs": 0,
+            "deleted_decisions": 0,
+            "deleted_combats": 0,
+            "cutoff": None,
+            "skipped": True,
+        }
+
+    now = _now if _now is not None else datetime.now(timezone.utc)
+    cutoff_dt = now - timedelta(days=retention_days)
+    cutoff = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    conn = get_conn()
+    try:
+        with conn:
+            cur = conn.execute(
+                "DELETE FROM decisions WHERE run_id IN "
+                "(SELECT id FROM runs WHERE ended_at IS NOT NULL AND ended_at < ?)",
+                (cutoff,),
+            )
+            deleted_decisions = cur.rowcount
+
+            cur = conn.execute(
+                "DELETE FROM combat_results WHERE run_id IN "
+                "(SELECT id FROM runs WHERE ended_at IS NOT NULL AND ended_at < ?)",
+                (cutoff,),
+            )
+            deleted_combats = cur.rowcount
+
+            cur = conn.execute(
+                "DELETE FROM runs WHERE ended_at IS NOT NULL AND ended_at < ?",
+                (cutoff,),
+            )
+            deleted_runs = cur.rowcount
+
+    finally:
+        conn.close()
+
+    return {
+        "deleted_runs": deleted_runs,
+        "deleted_decisions": deleted_decisions,
+        "deleted_combats": deleted_combats,
+        "cutoff": cutoff,
+        "skipped": False,
+    }
+
+
 def close_run(run_id: int, ended_at: str, outcome: str):
     _enqueue_fire_and_forget(_close_run_impl, run_id, ended_at, outcome)
 
@@ -635,3 +697,45 @@ def cache_cards(cards: list):
         conn.close()
 
     print(f"[CardCache] Cached {len(cards)} cards.")
+
+
+def unscored_decisions_report(hero: Optional[str] = None) -> list:
+    """Return aggregated unscored decisions (items not found in catalog).
+
+    Joins card_cache to resolve template IDs to human names; falls back to
+    chosen_template via COALESCE when the template is not in card_cache.
+
+    Args:
+        hero: Optional hero name filter (case-insensitive). None = all heroes.
+
+    Returns:
+        List of dicts with keys: hero, item_name, count, last_seen_run_id,
+        last_seen_at.
+    """
+    where_extra = ""
+    params: list = []
+    if hero:
+        where_extra = " AND LOWER(runs.hero) = LOWER(?)"
+        params.append(hero)
+
+    sql = f"""
+        SELECT runs.hero,
+               COALESCE(card_cache.name, decisions.chosen_template) AS item_name,
+               COUNT(*) AS count,
+               MAX(decisions.run_id) AS last_seen_run_id,
+               MAX(decisions.timestamp) AS last_seen_at
+        FROM decisions
+        JOIN runs ON runs.id = decisions.run_id
+        LEFT JOIN card_cache ON card_cache.template_id = decisions.chosen_template
+        WHERE decisions.score_notes LIKE '%catalog — no score assigned.'
+        {where_extra}
+        GROUP BY runs.hero, item_name
+        ORDER BY count DESC
+    """
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()

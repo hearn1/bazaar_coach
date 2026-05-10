@@ -456,6 +456,12 @@ def collect_doctor_report() -> dict:
     else:
         checks.append(_result("web port", "fail", f"Port {port} cannot be bound", port=port))
 
+    retention_days = int(settings.get("tracker.db_retention_days", 0) or 0)
+    if retention_days < 90:
+        checks.append(_result("retention", "ok", "disabled (set tracker.db_retention_days >=90 to enable)"))
+    else:
+        checks.append(_result("retention", "ok", f">={retention_days} days; runs older than that are pruned at startup"))
+
     return {
         "generated_at": utc_now_iso(),
         "checks": [asdict(check) for check in checks],

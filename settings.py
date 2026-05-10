@@ -59,6 +59,7 @@ DEFAULTS = {
         "skip_overlay": False,
         "web_port": 5555,
         "mono_process_name": "TheBazaar.exe",
+        "db_retention_days": 0,
     },
     "user": {
         "preferred_hero": None,

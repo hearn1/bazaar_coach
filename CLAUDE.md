@@ -30,6 +30,9 @@ venv312\Scripts\python.exe tracker.py refresh-images --coverage-only
 venv312\Scripts\python.exe tracker.py doctor
 venv312\Scripts\python.exe tracker.py export-diagnostics
 
+# Catalog coverage / unscored items report (curator workflow).
+venv312\Scripts\python.exe tracker.py catalog-coverage --hero Karnok
+
 # Full one-command workflow: log watcher + Flask dashboard + Mono capture
 # subprocess + PyWebView overlay. Decisions are scored live as they insert.
 venv312\Scripts\python.exe tracker.py
@@ -111,6 +114,8 @@ Manual diagnostics:
 
 **Infrastructure**: Waitress production WSGI server, session logging to `logs/`, DB writer queue for non-blocking writes, centralized app/settings/cache paths, schema/settings migrations, content/image refresh commands, diagnostics/export support, pytest coverage under `tests/`, Windows installer via PyInstaller + Inno Setup.
 
+**DB retention:** `tracker.db_retention_days` setting (default 0 = disabled). When set to ≥90, runs whose `ended_at` is older than the threshold are pruned at startup along with their `decisions` and `combat_results` rows. In-progress runs (`ended_at IS NULL`) are never touched. Implemented via `db.prune_old_runs(retention_days, _now=None)`.
+
 ## Known Quirks (Not Blocking)
 
 - Mono can be absent or late; decisions still insert and score using fallback heuristics, then future decisions use live context once snapshots arrive.
@@ -119,6 +124,7 @@ Manual diagnostics:
 - `_directReadMonoString` auto-detects chars offset on first call (12 or 16 depending on Mono build).
 - `api_game_states.captured_at` mixed formats: some rows ISO 8601, some Unix milliseconds. Any time-range query must handle both.
 - `combat_results` has no `timestamp` column. Ratio-based estimate (`i * total_combats / total_decisions`) is the correct fallback pattern for combat-count-at-decision queries.
+- Overlay header layout (as of round 4): the run outcome pill lives in the subtitle line next to the run counter, not in `.header-actions`. The close `×` is corner-pinned absolute (`.header-quit`). When editing `renderHeader()`, keep these two elements in their current locations — do not move them back into the top-row action cluster.
 
 ## Key Technical Notes for Capture Mono
 

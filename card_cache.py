@@ -397,6 +397,70 @@ def is_cache_populated() -> bool:
         return False
 
 
+def catalog_coverage_report() -> dict:
+    """Compare build catalog item lists against the local card_cache table.
+
+    For each hero in scorer.CATALOG_FILENAMES, walks the catalog JSON and
+    collects every string from any list whose key ends in ``_items``.  Then
+    computes symmetric set differences against card_cache.name values.
+
+    Returns:
+        Dict keyed by hero display name, each value containing:
+            catalog_items_count, card_cache_total,
+            items_in_cache_not_in_catalog (list),
+            items_in_catalog_not_in_cache (list).
+    """
+    import scorer  # local import to avoid circular dep at module load
+
+    # Collect all card_cache names once (shared across heroes)
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT name FROM card_cache WHERE name IS NOT NULL"
+        ).fetchall()
+        cache_names: set = {row[0] for row in rows}
+    finally:
+        conn.close()
+
+    card_cache_total = len(cache_names)
+
+    def _collect_items(obj, collected: set) -> None:
+        """Recursively walk obj; collect strings from lists whose key ends in _items."""
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                if key.endswith("_items") and isinstance(val, list):
+                    for item in val:
+                        if isinstance(item, str):
+                            collected.add(item)
+                        elif isinstance(item, dict):
+                            name_val = item.get("name") or item.get("Name")
+                            if isinstance(name_val, str):
+                                collected.add(name_val)
+                _collect_items(val, collected)
+        elif isinstance(obj, list):
+            for element in obj:
+                _collect_items(element, collected)
+
+    result: dict = {}
+    for hero_key in sorted(scorer.CATALOG_FILENAMES):
+        hero_display = hero_key.capitalize()
+        catalog_data = scorer._load_builds_cached(hero_key)
+        catalog_items: set = set()
+        _collect_items(catalog_data, catalog_items)
+
+        in_cache_not_catalog = sorted(cache_names - catalog_items)
+        in_catalog_not_cache = sorted(catalog_items - cache_names)
+
+        result[hero_display] = {
+            "catalog_items_count": len(catalog_items),
+            "card_cache_total": card_cache_total,
+            "items_in_cache_not_in_catalog": in_cache_not_catalog,
+            "items_in_catalog_not_in_cache": in_catalog_not_cache,
+        }
+
+    return result
+
+
 if __name__ == "__main__":
     import argparse
 

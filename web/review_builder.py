@@ -53,7 +53,7 @@ def _fallback_review_title(decision: dict) -> Optional[str]:
     notes = decision.get("score_notes") or ""
 
     if dtype == "skip":
-        missed_items = decision.get("resolved_offered") or extract_skip_relevant_items(notes)
+        missed_items = extract_skip_relevant_items(notes) or decision.get("resolved_offered") or []
         return missed_items[0] if missed_items else None
 
     if decision.get("chosen_name"):
@@ -553,7 +553,8 @@ def build_overlay_review_rows(
         if dtype == "item":
             shop_buffer.append((row, list(board_names)))
         elif dtype == "skip":
-            leftover_names = row.get("resolved_offered") or []
+            notes_for_skip = row.get("score_notes") or ""
+            leftover_names = extract_skip_relevant_items(notes_for_skip) or row.get("resolved_offered") or []
             if leftover_names:
                 missed_entry = _emit_shop_visit_missed_entry(
                     row, leftover_names, board_names, committed_arch, late_archetypes,
