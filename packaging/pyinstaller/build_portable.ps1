@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$SpecPath = Join-Path $PSScriptRoot "BazaarTracker.spec"
+$SpecPath = Join-Path $PSScriptRoot "BazaarCoach.spec"
 
 Push-Location $RepoRoot
 try {
@@ -33,7 +33,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller build failed with exit code $LASTEXITCODE"
     }
-    Write-Host "Portable package: $(Join-Path $RepoRoot 'dist\BazaarTracker')"
+    Write-Host "Portable package: $(Join-Path $RepoRoot 'dist\BazaarCoach')"
 }
 finally {
     Pop-Location

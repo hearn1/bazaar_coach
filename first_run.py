@@ -1,4 +1,4 @@
-"""First-run setup checklist for Bazaar Tracker."""
+"""First-run setup checklist for Bazaar Coach."""
 
 from __future__ import annotations
 
@@ -168,7 +168,7 @@ def run_setup(
         except Exception as exc:
             steps.append(_step("image_cache", "Refresh card images", "warn", f"Image refresh skipped; coverage unavailable: {exc}"))
 
-    port = int(settings.get("tracker.web_port", 5555) or 5555)
+    port = int(settings.get("coach.web_port", 5555) or 5555)
     if _port_available(port):
         steps.append(_step("web_port", "Verify web port", "ok", f"Port {port} is available", port=port))
     else:

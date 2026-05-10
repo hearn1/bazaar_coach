@@ -5,7 +5,7 @@ import update_checker
 
 
 def _reset_settings(tmp_path, monkeypatch):
-    monkeypatch.setenv("BAZAAR_TRACKER_SETTINGS_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_SETTINGS_DIR", str(tmp_path))
     settings._CACHE = None
     settings._PATH = None
 

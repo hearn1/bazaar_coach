@@ -1,4 +1,4 @@
-"""Smoke-test a portable PyInstaller Bazaar Tracker build."""
+"""Smoke-test a portable PyInstaller Bazaar Coach build."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ from pathlib import Path
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Smoke-test packaged BazaarTracker.exe")
+    parser = argparse.ArgumentParser(description="Smoke-test packaged BazaarCoach.exe")
     parser.add_argument(
         "--exe",
         type=Path,
-        default=Path("dist") / "BazaarTracker" / "BazaarTracker.exe",
-        help="Path to BazaarTracker.exe",
+        default=Path("dist") / "BazaarCoach" / "BazaarCoach.exe",
+        help="Path to BazaarCoach.exe",
     )
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
@@ -28,12 +28,12 @@ def main() -> int:
         print(f"[Smoke] Missing exe: {exe}")
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="bazaar-tracker-smoke-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="bazaar-coach-smoke-") as tmp:
         tmp_path = Path(tmp)
         env = os.environ.copy()
-        env["BAZAAR_TRACKER_DATA_DIR"] = str(tmp_path / "data")
-        env["BAZAAR_TRACKER_SETTINGS_DIR"] = str(tmp_path / "settings")
-        env["BAZAAR_TRACKER_CACHE_DIR"] = str(tmp_path / "data" / "static_cache")
+        env["BAZAAR_COACH_DATA_DIR"] = str(tmp_path / "data")
+        env["BAZAAR_COACH_SETTINGS_DIR"] = str(tmp_path / "settings")
+        env["BAZAAR_COACH_CACHE_DIR"] = str(tmp_path / "data" / "static_cache")
 
         commands = [
             [str(exe), "doctor"],
@@ -79,8 +79,8 @@ def main() -> int:
                         if response.status != 200:
                             raise RuntimeError(f"overlay returned HTTP {response.status}")
                         overlay_html = response.read(512).decode("utf-8", errors="replace")
-                    if "Bazaar Tracker" not in index_html:
-                        raise RuntimeError("index HTML did not look like Bazaar Tracker")
+                    if "Bazaar Coach" not in index_html:
+                        raise RuntimeError("index HTML did not look like Bazaar Coach")
                     if "<html" not in overlay_html.lower():
                         raise RuntimeError("overlay HTML did not look like HTML")
                     print("[Smoke] Packaged dashboard and overlay HTML loaded.")

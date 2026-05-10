@@ -3,7 +3,7 @@
 The manifest is built by ``extract_bazaar_bundle_pngs.py --cards-only`` and
 lives at ``static_cache/images/manifest.json``. This module caches the manifest
 in memory and reloads it automatically when the file's mtime changes (e.g. after
-``tracker.py refresh-images`` runs in a separate process). No server restart is
+``coach.py refresh-images`` runs in a separate process). No server restart is
 required to pick up new entries.
 """
 

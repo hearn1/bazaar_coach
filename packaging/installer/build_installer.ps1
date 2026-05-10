@@ -22,11 +22,11 @@ if (-not $AppVersion) {
 }
 
 if (-not $PortableDir) {
-    $PortableDir = Join-Path $RepoRoot "dist\BazaarTracker"
+    $PortableDir = Join-Path $RepoRoot "dist\BazaarCoach"
 }
 $PortableDir = Resolve-Path $PortableDir
 
-if (-not (Test-Path (Join-Path $PortableDir "BazaarTracker.exe"))) {
+if (-not (Test-Path (Join-Path $PortableDir "BazaarCoach.exe"))) {
     throw "Portable build not found at $PortableDir. Run packaging\pyinstaller\build_portable.ps1 first."
 }
 
@@ -50,7 +50,7 @@ if (-not $InnoSetupCompiler -or -not (Test-Path $InnoSetupCompiler)) {
     throw "Inno Setup compiler not found. Install Inno Setup 6 or pass -InnoSetupCompiler C:\Path\To\ISCC.exe."
 }
 
-$IssPath = Join-Path $ScriptDir "BazaarTracker.iss"
+$IssPath = Join-Path $ScriptDir "BazaarCoach.iss"
 $Args = @(
     "/DAppVersion=$AppVersion",
     "/DSourceDir=$PortableDir",
@@ -58,13 +58,13 @@ $Args = @(
     $IssPath
 )
 
-Write-Host "[Installer] Building Bazaar Tracker $AppVersion from $PortableDir"
+Write-Host "[Installer] Building Bazaar Coach $AppVersion from $PortableDir"
 & $InnoSetupCompiler @Args
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }
 
-$Installer = Join-Path $OutputDir "BazaarTrackerSetup-$AppVersion.exe"
+$Installer = Join-Path $OutputDir "BazaarCoachSetup-$AppVersion.exe"
 if (-not (Test-Path $Installer)) {
     throw "Expected installer was not produced: $Installer"
 }

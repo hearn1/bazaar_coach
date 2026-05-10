@@ -1,5 +1,5 @@
 """
-web/build_helpers.py — Build catalog helpers for the Bazaar Tracker web layer.
+web/build_helpers.py — Build catalog helpers for the Bazaar Coach web layer.
 
 Covers:
   - Build catalog loading (per-hero, cached)

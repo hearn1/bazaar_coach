@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A tracker/coach plugin for The Bazaar (a PvP autobattler card game by Tempo Storm). It captures every decision during a run into a local SQLite database, scores them against known build guides, and shows live coaching via an in-game overlay. The project has hero-aware build catalogs for Karnok, Mak, Dooley, Vanessa, and Pygmalien. Distributed as a Windows installer; first alpha release published at https://github.com/hearn1/bazaar_tracker (tag: v0.1-alpha.1).
+A coaching plugin for The Bazaar (a PvP autobattler card game by Tempo Storm). It captures every decision during a run into a local SQLite database, scores them against known build guides, and shows live coaching via an in-game overlay. The project has hero-aware build catalogs for Karnok, Mak, Dooley, Vanessa, and Pygmalien. Distributed as a Windows installer; first alpha release published at https://github.com/hearn1/bazaar_coach (tag: v0.1-alpha.1).
 
 ## Common commands
 
@@ -13,32 +13,32 @@ A tracker/coach plugin for The Bazaar (a PvP autobattler card game by Tempo Stor
 pip install -r requirements.txt
 
 # Setup/status. Normal app startup does not block on CDN refresh.
-venv312\Scripts\python.exe tracker.py setup-status
-venv312\Scripts\python.exe tracker.py setup --refresh-content never
+venv312\Scripts\python.exe coach.py setup-status
+venv312\Scripts\python.exe coach.py setup --refresh-content never
 
 # Refresh static content when online. Re-run after major game patches.
-venv312\Scripts\python.exe tracker.py refresh-content
+venv312\Scripts\python.exe coach.py refresh-content
 
 # Refresh latest published build catalogs without reinstalling.
-venv312\Scripts\python.exe tracker.py refresh-builds
+venv312\Scripts\python.exe coach.py refresh-builds
 
 # Refresh/report card image cache coverage.
-venv312\Scripts\python.exe tracker.py refresh-images
-venv312\Scripts\python.exe tracker.py refresh-images --coverage-only
+venv312\Scripts\python.exe coach.py refresh-images
+venv312\Scripts\python.exe coach.py refresh-images --coverage-only
 
 # Diagnostics bundle for support.
-venv312\Scripts\python.exe tracker.py doctor
-venv312\Scripts\python.exe tracker.py export-diagnostics
+venv312\Scripts\python.exe coach.py doctor
+venv312\Scripts\python.exe coach.py export-diagnostics
 
 # Catalog coverage / unscored items report (curator workflow).
-venv312\Scripts\python.exe tracker.py catalog-coverage --hero Karnok
+venv312\Scripts\python.exe coach.py catalog-coverage --hero Karnok
 
 # Full one-command workflow: log watcher + Flask dashboard + Mono capture
 # subprocess + PyWebView overlay. Decisions are scored live as they insert.
-venv312\Scripts\python.exe tracker.py
-venv312\Scripts\python.exe tracker.py --no-mono       # skip Frida/Mono subprocess
-venv312\Scripts\python.exe tracker.py --no-overlay    # headless (watcher + Flask only)
-venv312\Scripts\python.exe tracker.py --log "PATH"    # override Player.log autodetect
+venv312\Scripts\python.exe coach.py
+venv312\Scripts\python.exe coach.py --no-mono       # skip Frida/Mono subprocess
+venv312\Scripts\python.exe coach.py --no-overlay    # headless (watcher + Flask only)
+venv312\Scripts\python.exe coach.py --log "PATH"    # override Player.log autodetect
 
 # Watcher in isolation (debugging)
 venv312\Scripts\python.exe watcher.py
@@ -47,17 +47,17 @@ venv312\Scripts\python.exe watcher.py --log "PATH"
 
 # Tests live in tests/ and pytest.ini sets pythonpath/testpaths
 venv312\Scripts\python.exe -m pytest -q
-venv312\Scripts\python.exe -B -m py_compile tracker.py first_run.py update_checker.py doctor.py refresh_builds.py refresh_images.py settings.py card_cache.py content_manifest.py web/server.py
+venv312\Scripts\python.exe -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_builds.py refresh_images.py settings.py card_cache.py content_manifest.py web/server.py
 ```
 
-The dashboard is served on `http://127.0.0.1:5555` (`DEFAULT_WEB_PORT` in `tracker.py`). Each tracker session writes a UTF-8 mirror of stdout/stderr to `logs/tracker_YYYYMMDD_HHMMSS.log` — easiest file to share for debugging.
+The dashboard is served on `http://127.0.0.1:5555` (`DEFAULT_WEB_PORT` in `coach.py`). Each session writes a UTF-8 mirror of stdout/stderr to `logs/coach_YYYYMMDD_HHMMSS.log` — easiest file to share for debugging.
 
 Default Player.log location (auto-detected): `C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log`. Project is Windows-targeted at runtime — `frida`, `watchdog`, and `pywebview` in requirements are unpinned because they're Windows-venv- or game-build-dependent.
 
 ## Architecture
 
 ```
-tracker.py                 # single entrypoint - launches everything below
+coach.py                   # single entrypoint - launches everything below
   |- watcher.py            # tails Player.log in real time
   |    |- parser.py        # regex -> structured event dicts
   |    `- run_state.py     # state machine -> assembles decisions -> db.py
@@ -114,7 +114,7 @@ Manual diagnostics:
 
 **Infrastructure**: Waitress production WSGI server, session logging to `logs/`, DB writer queue for non-blocking writes, centralized app/settings/cache paths, schema/settings migrations, content/image refresh commands, diagnostics/export support, pytest coverage under `tests/`, Windows installer via PyInstaller + Inno Setup.
 
-**DB retention:** `tracker.db_retention_days` setting (default 0 = disabled). When set to ≥90, runs whose `ended_at` is older than the threshold are pruned at startup along with their `decisions` and `combat_results` rows. In-progress runs (`ended_at IS NULL`) are never touched. Implemented via `db.prune_old_runs(retention_days, _now=None)`.
+**DB retention:** `coach.db_retention_days` setting (default 0 = disabled). When set to ≥90, runs whose `ended_at` is older than the threshold are pruned at startup along with their `decisions` and `combat_results` rows. In-progress runs (`ended_at IS NULL`) are never touched. Implemented via `db.prune_old_runs(retention_days, _now=None)`.
 
 ## Known Quirks (Not Blocking)
 
@@ -135,7 +135,7 @@ Manual diagnostics:
 
 ## Catalog Curation
 
-`<hero>_builds.json` files (and `builds_schema.json`) live in this repo and ship with the installer. Players can run `tracker.py refresh-builds` to pull the latest published catalogs from the tracker repo's `main` branch into the writable data directory without reinstalling; incompatible or malformed refreshed catalogs are ignored in favor of the bundled copy. The curator toolchain that produces them — `bazaar_build_enricher.py` and `probe_*.py` — has been extracted to a separate repo:
+`<hero>_builds.json` files (and `builds_schema.json`) live in this repo and ship with the installer. Players can run `coach.py refresh-builds` to pull the latest published catalogs from the coach repo's `main` branch into the writable data directory without reinstalling; incompatible or malformed refreshed catalogs are ignored in favor of the bundled copy. The curator toolchain that produces them — `bazaar_build_enricher.py` and `probe_*.py` — has been extracted to a separate repo:
 
 **[https://github.com/hearn1/bazaar-builds](https://github.com/hearn1/bazaar-builds)**
 
@@ -143,6 +143,6 @@ That repo contains the enricher, probe scripts, CI schema validation, and usage 
 
 For bazaar-builds manual catalog curation, distinguish safe no-op workflow validation from evidence-bearing curation. A run without fetched post evidence can validate the command path, but catalog curation validation requires fetched post evidence, normally with `--fetch-posts`, or an explicitly evidence-backed empty result after fetch attempts. If curator-accepted deltas exist, apply and validate the catalog edit; if no accepted deltas exist, record the evidence-backed no-change decision.
 
-Automated build-refresh pipeline status lives in the bazaar-builds repo. Current tracker-facing contract: bazaar-builds is in `phase: shadow_cron` with `dry_run: true`; scheduled runs default to deterministic `no_llm_shadow`; stats sidecars are persisted via rolling `automated/stats-sync-<hero>` PRs in bazaar-builds (direct push to `main` is blocked by branch protection); tracker catalogs and tracker PRs must not be mutated until `live_cron` is manually enabled. Do not promote to `live_cron` until there are at least 2 healthy bazaardb patch windows, at least 60 calendar days of shadow output, and semantic classifier/provider readiness or an explicit waiver.
+Automated build-refresh pipeline status lives in the bazaar-builds repo. Current coach-facing contract: bazaar-builds is in `phase: shadow_cron` with `dry_run: true`; scheduled runs default to deterministic `no_llm_shadow`; stats sidecars are persisted via rolling `automated/stats-sync-<hero>` PRs in bazaar-builds (direct push to `main` is blocked by branch protection); coach catalogs and coach PRs must not be mutated until `live_cron` is manually enabled. Do not promote to `live_cron` until there are at least 2 healthy bazaardb patch windows, at least 60 calendar days of shadow output, and semantic classifier/provider readiness or an explicit waiver.
 
 See `ROADMAP.md` for open bugs and planned features.

@@ -1,5 +1,5 @@
 """
-tracker.py — Unified Bazaar tracker runner.
+coach.py — Unified Bazaar Coach runner.
 
 Starts the Player.log watcher in-process and, by default, launches the
 Mono capture pipeline in a background subprocess. Decisions are scored live
@@ -14,9 +14,9 @@ All paths use a shared shutdown_event to coordinate ordered teardown
 of subprocesses, threads, and disk I/O.
 
 Usage:
-    python tracker.py
-    python tracker.py --no-mono
-    python tracker.py --no-overlay
+    python coach.py
+    python coach.py --no-mono
+    python coach.py --no-overlay
 """
 
 import argparse
@@ -75,14 +75,14 @@ class TeeStream:
 def start_session_logging():
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = LOGS_DIR / f"tracker_{ts}.log"
+    log_path = LOGS_DIR / f"coach_{ts}.log"
     log_handle = open(log_path, "w", encoding="utf-8", newline="")
 
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     sys.stdout = TeeStream(original_stdout, log_handle)
     sys.stderr = TeeStream(original_stderr, log_handle)
-    print(f"[Tracker] Session log: {log_path}")
+    print(f"[Coach] Session log: {log_path}")
     return log_handle, original_stdout, original_stderr
 
 
@@ -158,10 +158,10 @@ def run_tracker_watcher(args):
 
 def print_startup_versions():
     """Print support/version diagnostics once per tracker startup."""
-    print(f"[Tracker] App version: {APP_VERSION}")
-    print(f"[Tracker] DB schema version: {db.get_schema_version()} (expected {db.SCHEMA_VERSION})")
-    print(f"[Tracker] Settings schema version: {settings.SCHEMA_VERSION}")
-    print(f"[Tracker] Content manifest: {content_manifest.summarize_manifest()}")
+    print(f"[Coach] App version: {APP_VERSION}")
+    print(f"[Coach] DB schema version: {db.get_schema_version()} (expected {db.SCHEMA_VERSION})")
+    print(f"[Coach] Settings schema version: {settings.SCHEMA_VERSION}")
+    print(f"[Coach] Content manifest: {content_manifest.summarize_manifest()}")
 
 
 def _install_signal_handlers():
@@ -172,7 +172,7 @@ def _install_signal_handlers():
     of truth for the main thread to initiate ordered teardown.
     """
     def _signal_handler(signum, frame):
-        print(f"\n[Tracker] Received signal {signum} — initiating shutdown.")
+        print(f"\n[Coach] Received signal {signum} — initiating shutdown.")
         shutdown_event.set()
         # If overlay is running, destroy the window to release webview.start()
         try:
@@ -180,7 +180,7 @@ def _install_signal_handlers():
             if webview.windows:
                 webview.windows[0].destroy()
         except Exception as e:
-            print(f"[Tracker] Webview destroy failed during signal handler: {e}")
+            print(f"[Coach] Webview destroy failed during signal handler: {e}")
     
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -202,12 +202,12 @@ def _shutdown(mono_proc, log_handle, original_stdout, original_stderr):
     """
     # Step 1-2: Terminate Mono subprocess with escalating force
     if mono_proc and mono_proc.poll() is None:
-        print("[Tracker] Stopping capture_mono...")
+        print("[Coach] Stopping capture_mono...")
         mono_proc.terminate()
         try:
             mono_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            print("[Tracker] Mono subprocess did not respond to SIGTERM, force-killing...")
+            print("[Coach] Mono subprocess did not respond to SIGTERM, force-killing...")
             mono_proc.kill()
             mono_proc.wait()
     
@@ -222,7 +222,7 @@ def _shutdown(mono_proc, log_handle, original_stdout, original_stderr):
     settings.save()
     
     # Step 7-8: Restore streams and close log
-    print("[Tracker] Shutdown complete.")
+    print("[Coach] Shutdown complete.")
     sys.stdout = original_stdout
     sys.stderr = original_stderr
     log_handle.close()
@@ -247,7 +247,7 @@ def main():
         db.init_db()
         summary = card_cache.refresh_cache(versioned=not refresh_args.no_versioned_cache)
         card_cache.print_refresh_summary(summary)
-        print(f"[Tracker] Content manifest: {content_manifest.summarize_manifest()}")
+        print(f"[Coach] Content manifest: {content_manifest.summarize_manifest()}")
         raise SystemExit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "refresh-images":
         import refresh_images
@@ -286,7 +286,7 @@ def main():
         import json
         import first_run
 
-        setup_parser = argparse.ArgumentParser(description="Bazaar Tracker first-run setup")
+        setup_parser = argparse.ArgumentParser(description="Bazaar Coach first-run setup")
         setup_parser.add_argument("command", choices=["setup", "setup-status"])
         setup_parser.add_argument("--force", action="store_true", help="Run setup even if it is already completed")
         setup_parser.add_argument("--refresh-content", choices=["auto", "always", "never"], default="auto")
@@ -313,7 +313,7 @@ def main():
     log_handle, original_stdout, original_stderr = start_session_logging()
     
     parser = argparse.ArgumentParser(
-        description="Unified Bazaar tracker runner (watcher + Flask dashboard + overlay + mono capture)"
+        description="Unified Bazaar Coach runner (watcher + Flask dashboard + overlay + mono capture)"
     )
     parser.add_argument("--log", type=str, default=None,
                         help="Path to Player.log (auto-detected if omitted)")
@@ -345,7 +345,7 @@ def main():
         if setup_report.get("steps"):
             first_run.print_setup_report(setup_report)
         db.init_db()
-        _retention_days = int(settings.get("tracker.db_retention_days", 0) or 0)
+        _retention_days = int(settings.get("coach.db_retention_days", 0) or 0)
         if _retention_days >= 90:
             summary = db.prune_old_runs(_retention_days)
             print(f"[Retention] Deleted {summary['deleted_runs']} runs older than {_retention_days}d (decisions={summary['deleted_decisions']}, combats={summary['deleted_combats']})")
@@ -367,7 +367,7 @@ def main():
             import overlay
 
         if should_launch_mono:
-            print("[Tracker] Launching capture_mono in the background...")
+            print("[Coach] Launching capture_mono in the background...")
             mono_proc = launch_capture_mono(process_name=args.mono_process)
 
         if should_launch_overlay:
@@ -391,7 +391,7 @@ def main():
             ).start()
             shutdown_event.wait()
     except KeyboardInterrupt:
-        print("\n[Tracker] Stopped.")
+        print("\n[Coach] Stopped.")
     finally:
         _shutdown(mono_proc, log_handle, original_stdout, original_stderr)
 

@@ -1,5 +1,5 @@
 """
-web/review_builder.py — Overlay review row assembly for the Bazaar Tracker.
+web/review_builder.py — Overlay review row assembly for the Bazaar Coach.
 
 Builds the list of decision rows shown in the overlay's Review tab.
 

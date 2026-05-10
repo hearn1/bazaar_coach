@@ -56,7 +56,7 @@ def test_build_catalogs_resolve_from_bundled_root():
 def test_pyinstaller_packaging_files_exist():
     root = app_paths.repo_dir()
     expected = [
-        root / "packaging" / "pyinstaller" / "BazaarTracker.spec",
+        root / "packaging" / "pyinstaller" / "BazaarCoach.spec",
         root / "packaging" / "pyinstaller" / "build_portable.ps1",
         root / "packaging" / "pyinstaller" / "requirements-build.txt",
         root / "packaging" / "pyinstaller" / "smoke_test_portable.py",
@@ -67,7 +67,7 @@ def test_pyinstaller_packaging_files_exist():
 
 def test_pyinstaller_spec_bundles_build_catalogs():
     root = app_paths.repo_dir()
-    spec = (root / "packaging" / "pyinstaller" / "BazaarTracker.spec").read_text()
+    spec = (root / "packaging" / "pyinstaller" / "BazaarCoach.spec").read_text()
 
     assert '"dooley_builds.json"' in spec
     assert '"karnok_builds.json"' in spec
@@ -78,7 +78,7 @@ def test_pyinstaller_spec_bundles_build_catalogs():
 
 def test_pyinstaller_spec_is_windowed_after_null_stream_coverage():
     root = app_paths.repo_dir()
-    spec = (root / "packaging" / "pyinstaller" / "BazaarTracker.spec").read_text()
+    spec = (root / "packaging" / "pyinstaller" / "BazaarCoach.spec").read_text()
 
     assert "console=False" in spec
 
@@ -100,7 +100,7 @@ def test_build_portable_selects_python_flexibly():
 def test_windows_installer_packaging_files_exist():
     root = app_paths.repo_dir()
     expected = [
-        root / "packaging" / "installer" / "BazaarTracker.iss",
+        root / "packaging" / "installer" / "BazaarCoach.iss",
         root / "packaging" / "installer" / "build_installer.ps1",
         root / "packaging" / "installer" / "README.md",
     ]

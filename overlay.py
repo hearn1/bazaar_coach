@@ -96,7 +96,7 @@ def launch_overlay(port: int = 5555):
 
     url = f"http://127.0.0.1:{port}/overlay"
     window = webview.create_window(
-        "Bazaar Tracker",
+        "Bazaar Coach",
         url,
         width=width,
         height=height,

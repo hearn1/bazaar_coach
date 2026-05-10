@@ -1,4 +1,4 @@
-# Bazaar Tracker - Roadmap
+# Bazaar Coach - Roadmap
 
 Active work tracker. Project context, architecture, completed work history, and stable operating notes live in `CLAUDE.md`.
 

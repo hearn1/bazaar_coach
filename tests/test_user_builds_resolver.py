@@ -99,7 +99,7 @@ def test_user_catalog_overrides_bundled(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
     monkeypatch.setattr(scorer, "validate_builds_catalog", lambda data: (True, ""))
 
@@ -126,7 +126,7 @@ def test_user_catalog_disabled_falls_through(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
     monkeypatch.setattr(scorer, "validate_builds_catalog", lambda data: (True, ""))
 
@@ -148,7 +148,7 @@ def test_user_catalog_malformed_falls_through(tmp_path, monkeypatch):
     user_dir.mkdir()
     (user_dir / "karnok_user.json").write_text("{not valid json", encoding="utf-8")
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
     monkeypatch.setattr(scorer, "validate_builds_catalog", lambda data: (True, ""))
 
@@ -181,7 +181,7 @@ def test_user_catalog_schema_fail_falls_through(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
     # Use real validation so the missing-hero schema failure is exercised.
 
@@ -199,7 +199,7 @@ def test_catalog_source_status_includes_user_tier(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
 
     status = scorer.catalog_source_status("Karnok")
@@ -228,7 +228,7 @@ def test_catalog_source_status_disabled_user_marks_disabled(tmp_path, monkeypatc
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
     monkeypatch.setattr(scorer, "validate_builds_catalog", lambda data: (True, ""))
 
@@ -248,7 +248,7 @@ def test_invalidate_catalog_cache_clears_scorer_cache(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
     monkeypatch.setattr(scorer, "validate_builds_catalog", lambda data: (True, ""))
 

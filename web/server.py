@@ -1,5 +1,5 @@
 """
-web/server.py — Flask API + static file server for the Bazaar Tracker dashboard.
+web/server.py — Flask API + static file server for the Bazaar Coach dashboard.
 
 This file owns only route definitions and the server lifecycle. All business
 logic has been extracted to focused modules:
@@ -10,11 +10,11 @@ logic has been extracted to focused modules:
   web/review_builder.py  — overlay review row construction
 
 Usage:
-    cd bazaar_tracker
+    cd bazaar_coach
     python -m web.server                  # standalone on port 5555
     python -m web.server --port 8080      # custom port
 
-Or import and start from tracker.py:
+Or import and start from coach.py:
     from web.server import start_web_server
     start_web_server(port=5555, db_path="bazaar_runs.db")
 """
@@ -935,7 +935,7 @@ def start_web_server(port=DEFAULT_PORT, db_path=None, background=True, auto_refr
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bazaar Tracker Web Dashboard")
+    parser = argparse.ArgumentParser(description="Bazaar Coach Web Dashboard")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--db", type=str, default=None, help="Path to bazaar_runs.db")
     parser.add_argument("--no-refresh-builds", action="store_true",

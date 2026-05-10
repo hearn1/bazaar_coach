@@ -1,15 +1,15 @@
 """
-app_paths.py — Centralized filesystem paths for Bazaar Tracker.
+app_paths.py — Centralized filesystem paths for Bazaar Coach.
 
 Development defaults stay repo-local so running from a checkout behaves like it
 has historically. Packaged builds, or runs with path override env vars, use
 per-user data directories so the installed app directory remains read-only.
 
 Override env vars:
-  BAZAAR_TRACKER_DATA_DIR      Base dir for DB, logs, and static cache
-  BAZAAR_TRACKER_SETTINGS_DIR  Directory containing settings.json
-  BAZAAR_TRACKER_DB_PATH       Exact SQLite DB path
-  BAZAAR_TRACKER_CACHE_DIR     Static content cache directory
+  BAZAAR_COACH_DATA_DIR      Base dir for DB, logs, and static cache
+  BAZAAR_COACH_SETTINGS_DIR  Directory containing settings.json
+  BAZAAR_COACH_DB_PATH       Exact SQLite DB path
+  BAZAAR_COACH_CACHE_DIR     Static content cache directory
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-APP_NAME = "BazaarTracker"
+APP_NAME = "BazaarCoach"
 
 
 def is_packaged() -> bool:
@@ -83,17 +83,17 @@ def user_data_mode() -> bool:
     return any(
         os.environ.get(name)
         for name in (
-            "BAZAAR_TRACKER_DATA_DIR",
-            "BAZAAR_TRACKER_SETTINGS_DIR",
-            "BAZAAR_TRACKER_DB_PATH",
-            "BAZAAR_TRACKER_CACHE_DIR",
+            "BAZAAR_COACH_DATA_DIR",
+            "BAZAAR_COACH_SETTINGS_DIR",
+            "BAZAAR_COACH_DB_PATH",
+            "BAZAAR_COACH_CACHE_DIR",
         )
     )
 
 
 def data_dir() -> Path:
     """Base directory for mutable data: DB, logs, and cache."""
-    override = _env_path("BAZAAR_TRACKER_DATA_DIR")
+    override = _env_path("BAZAAR_COACH_DATA_DIR")
     if override:
         return override
     if user_data_mode():
@@ -103,7 +103,7 @@ def data_dir() -> Path:
 
 def settings_dir() -> Path:
     """Directory containing settings.json."""
-    override = _env_path("BAZAAR_TRACKER_SETTINGS_DIR")
+    override = _env_path("BAZAAR_COACH_SETTINGS_DIR")
     if override:
         return override
     if user_data_mode():
@@ -116,7 +116,7 @@ def settings_path() -> Path:
 
 
 def db_path() -> Path:
-    override = _env_path("BAZAAR_TRACKER_DB_PATH")
+    override = _env_path("BAZAAR_COACH_DB_PATH")
     if override:
         return override
     return data_dir() / "bazaar_runs.db"
@@ -127,7 +127,7 @@ def logs_dir() -> Path:
 
 
 def static_cache_dir() -> Path:
-    override = _env_path("BAZAAR_TRACKER_CACHE_DIR")
+    override = _env_path("BAZAAR_COACH_CACHE_DIR")
     if override:
         return override
     return data_dir() / "static_cache"

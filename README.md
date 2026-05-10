@@ -1,4 +1,4 @@
-# Bazaar Run Tracker
+# Bazaar Coach
 
 Captures every decision you make in The Bazaar into a local SQLite database,
 structured for future scoring and AI-assisted analysis.
@@ -27,29 +27,29 @@ pip install -r requirements.txt
 
 **2. Run setup/status checks:**
 ```
-python tracker.py setup-status
-python tracker.py setup --refresh-content never
+python coach.py setup-status
+python coach.py setup --refresh-content never
 ```
-Normal tracker startup does not block on CDN content refresh. It initializes local paths/settings/DB and reports missing static content as a warning.
+Normal app startup does not block on CDN content refresh. It initializes local paths/settings/DB and reports missing static content as a warning.
 
 **3. Refresh static content when online** (run after major Bazaar patches):
 ```
-python tracker.py refresh-content
+python coach.py refresh-content
 ```
 This hits `data.playthebazaar.com/static`, keeps the previous local cache active if refresh fails, and records endpoint/card diffs in the content manifest.
 
 **4. Refresh card images when needed:**
 ```
-python tracker.py refresh-images
-python tracker.py refresh-images --coverage-only
+python coach.py refresh-images
+python coach.py refresh-images --coverage-only
 ```
 Per-card image extraction remains partial/legacy work. The current roadmap direction is one representative image per build archetype, while still waiting for BazaarDB guidance on optional local user-side image caching.
 
 **5. Refresh build catalogs when updates are available:**
 ```
-venv312\Scripts\python.exe tracker.py refresh-builds
+venv312\Scripts\python.exe coach.py refresh-builds
 ```
-This pulls the latest curator-approved build catalogs from GitHub into your tracker install, no reinstall needed.
+This pulls the latest curator-approved build catalogs from GitHub into your install, no reinstall needed.
 
 Players can also open **Build Data** in the dashboard and click **Refresh Builds**. Normal app startup starts the same refresh logic in the background without blocking play or depending on GitHub availability. The Build Data panel shows refreshed/unchanged/failed status plus the build-data notes bundled with each catalog.
 
@@ -58,7 +58,7 @@ Expected success output looks like:
 refresh-builds: 5 updated, 0 unchanged, 0 skipped (errors)
 ```
 
-If the refresh fails, the catalogs that shipped with your installer keep working. That includes cases where GitHub is unreachable, one hero's file does not pass validation, or a refreshed catalog turns out to be malformed later. The tracker falls back to the installer version, so you lose nothing by trying.
+If the refresh fails, the catalogs that shipped with your installer keep working. That includes cases where GitHub is unreachable, one hero's file does not pass validation, or a refreshed catalog turns out to be malformed later. The app falls back to the installer version, so you lose nothing by trying.
 
 `refresh-builds` is optional. The installer ships with a complete catalog set, and players who never run it still get full scoring and coaching.
 
@@ -74,12 +74,12 @@ python watcher.py
 
 **8. Run the full one-command workflow** (watch log + launch Mono capture + live scoring):
 ```
-<pathToTracker>\venv312\Scripts\python tracker.py
+<pathToCoach>\venv312\Scripts\python coach.py
 ```
 This replaces the old three-terminal workflow of `watcher.py`, `capture_mono.py --db`, and manual bridge runs.
-Each run also writes a UTF-8 session log to `logs/tracker_YYYYMMDD_HHMMSS.log`, which is the easiest file to share for debugging.
+Each run also writes a UTF-8 session log to `logs/coach_YYYYMMDD_HHMMSS.log`, which is the easiest file to share for debugging.
 
-The current supported workflow lives in `tracker.py`, `watcher.py`, and the modules they invoke.
+The current supported workflow lives in `coach.py`, `watcher.py`, and the modules they invoke.
 Legacy transport-capture experiments have been removed from the project root so the active pipeline is easier to navigate.
 
 ## Tests
@@ -88,7 +88,7 @@ Tests live in `tests/` and are configured through `pytest.ini`.
 
 ```
 python -m pytest -q
-python -B -m py_compile tracker.py first_run.py update_checker.py doctor.py refresh_images.py settings.py card_cache.py content_manifest.py
+python -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_images.py settings.py card_cache.py content_manifest.py
 ```
 
 Latest local verification: `python -m pytest -q` reports 68 tests passing.
@@ -96,8 +96,8 @@ Latest local verification: `python -m pytest -q` reports 68 tests passing.
 ## Diagnostics
 
 ```
-python tracker.py doctor
-python tracker.py export-diagnostics
+python coach.py doctor
+python coach.py export-diagnostics
 ```
 
 `doctor` intentionally initializes/verifies the DB schema before reporting DB-dependent summaries, so a clean profile should not report contradictory DB state.
@@ -115,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File packaging\installer\build_installer.ps1
 
 `build_portable.ps1` accepts `-PythonExe` for fresh clones or custom virtual environments. If omitted, it uses `.\venv312\Scripts\python.exe` when present, otherwise it falls back to the active `python` on PATH and prints the selected interpreter.
 
-The Inno Setup installer is built from the PyInstaller onedir output in `dist\BazaarTracker`. It installs app files to a versioned install directory, creates Start Menu shortcuts, offers an optional desktop shortcut, and includes a Start Menu doctor shortcut. Uninstall removes installed app files by default and prompts before deleting `%APPDATA%\BazaarTracker` and `%LOCALAPPDATA%\BazaarTracker`.
+The Inno Setup installer is built from the PyInstaller onedir output in `dist\BazaarCoach`. It installs app files to a versioned install directory, creates Start Menu shortcuts, offers an optional desktop shortcut, and includes a Start Menu doctor shortcut. Uninstall removes installed app files by default and prompts before deleting `%APPDATA%\BazaarCoach` and `%LOCALAPPDATA%\BazaarCoach`.
 
 ## GitHub Prep
 
@@ -127,7 +127,7 @@ The app does not require a dedicated hosted website. Update checks are disabled 
 
 ## Log File Location
 
-The tracker auto-detects the log at:
+The app auto-detects the log at:
 ```
 C:\Users\<YourUsername>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log
 ```
