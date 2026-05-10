@@ -119,6 +119,13 @@ def _writable_builds_path(hero: Optional[str] = None) -> Path:
     return _writable_builds_dir() / _hero_catalog_filename(hero_name)
 
 
+def _user_builds_path(hero: Optional[str]) -> Path:
+    hero_name = normalize_hero_name(hero) or DEFAULT_HERO
+    if _catalog_filename_or_none(hero_name) is None:
+        raise ValueError(f"No build catalog for {hero_name}")
+    return app_paths.user_builds_path(hero_name.casefold())
+
+
 def _empty_builds(hero: str) -> dict:
     return {
         "hero": hero,
@@ -202,10 +209,15 @@ def _load_builds_cached(hero_name: str) -> dict:
         print(f"[Scorer] No build catalog for {hero_name}; using empty catalog.")
         return _empty_builds(hero_name)
 
-    for source, path in (
-        ("writable", _writable_builds_path(hero_name)),
-        ("bundled", _builds_path(hero_name)),
-    ):
+    tiers = []
+    try:
+        tiers.append(("user_builds", _user_builds_path(hero_name)))
+    except ValueError:
+        pass
+    tiers.append(("writable", _writable_builds_path(hero_name)))
+    tiers.append(("bundled", _builds_path(hero_name)))
+
+    for source, path in tiers:
         if not path.exists():
             continue
         try:
@@ -216,6 +228,10 @@ def _load_builds_cached(hero_name: str) -> dict:
         if not isinstance(data, dict):
             print(f"[Scorer] Refusing {source} catalog {path.name}: catalog root is not an object")
             continue
+        if source == "user_builds":
+            data = dict(data)
+            if data.pop("enabled", True) is False:
+                continue
         ok, err = validate_builds_catalog(data)
         if not ok:
             print(f"[Scorer] Refusing {source} catalog {path.name}: {err}")
@@ -247,15 +263,21 @@ def catalog_source_status(hero: str) -> dict:
 
     candidates = []
     selected = None
-    for source, path in (
-        ("writable", _writable_builds_path(hero_name)),
-        ("bundled", _builds_path(hero_name)),
-    ):
+    tiers: list[tuple[str, Path]] = []
+    try:
+        tiers.append(("user_builds", _user_builds_path(hero_name)))
+    except ValueError:
+        pass
+    tiers.append(("writable", _writable_builds_path(hero_name)))
+    tiers.append(("bundled", _builds_path(hero_name)))
+
+    for source, path in tiers:
         details = {
             "source": source,
             "path": str(path),
             "exists": path.exists(),
             "valid": False,
+            "disabled": False,
             "last_updated": None,
             "error": None,
         }
@@ -263,11 +285,16 @@ def catalog_source_status(hero: str) -> dict:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    ok, err = validate_builds_catalog(data)
-                    details["valid"] = ok
-                    details["last_updated"] = data.get("last_updated")
-                    if not ok:
-                        details["error"] = err
+                    if source == "user_builds" and data.get("enabled", True) is False:
+                        details["disabled"] = True
+                        details["valid"] = False
+                        details["error"] = None
+                    else:
+                        ok, err = validate_builds_catalog(data)
+                        details["valid"] = ok
+                        details["last_updated"] = data.get("last_updated")
+                        if not ok:
+                            details["error"] = err
                 else:
                     details["error"] = "catalog root is not an object"
             except (json.JSONDecodeError, OSError) as exc:
@@ -286,6 +313,7 @@ def catalog_source_status(hero: str) -> dict:
             f"Using {selected['source']} catalog for {hero_name}"
             if selected else f"No valid build catalog found for {hero_name}"
         ),
+        "selected": selected,
         "candidates": candidates,
     }
 

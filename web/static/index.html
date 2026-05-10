@@ -292,16 +292,6 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
   border-radius: var(--radius); margin: 8px 0;
 }
 
-/* ── Ask AI button ───────────────────────────────────────────────── */
-.ask-ai-btn {
-  font-family: var(--font-body); font-size: 0.78rem; font-weight: 600;
-  color: var(--accent); background: rgba(201,164,74,0.08);
-  border: 1px solid var(--accent-dim); border-radius: var(--radius);
-  padding: 4px 12px; cursor: pointer; transition: all 0.15s;
-}
-.ask-ai-btn:hover { background: rgba(201,164,74,0.15); border-color: var(--accent); }
-.ask-ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
 /* ── Toast ───────────────────────────────────────────────────────── */
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -367,6 +357,7 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
   background: rgba(26,30,42,0.72);
 }
 .build-panel.visible { display: block; }
+body.panel-open #run-view { display: none; }
 .build-panel-head {
   display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
 }
@@ -423,8 +414,8 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
   <header>
     <h1>BAZAAR TRACKER</h1>
     <span class="subtitle" id="header-sub">Loading...</span>
-    <button class="ask-ai-btn" id="ask-ai-btn" onclick="askAI()" style="margin-left:auto" disabled>Ask AI &#8599;</button>
-    <button class="history-toggle" id="builds-btn" onclick="toggleBuildPanel()">Build Data</button>
+    <button class="history-toggle" id="builds-btn" onclick="toggleBuildPanel()" style="margin-left:auto">Build Data</button>
+    <button class="history-toggle" id="my-builds-btn" onclick="toggleMyBuildsPanel()">My Builds</button>
     <button class="history-toggle" id="history-btn" onclick="toggleHistory()">Run History</button>
   </header>
   <div class="toast" id="toast"></div>
@@ -439,6 +430,18 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
     </div>
     <div class="build-status" id="build-refresh-status"></div>
     <div class="build-notes" id="build-notes"></div>
+  </div>
+
+  <div class="build-panel" id="my-builds-panel">
+    <div class="build-panel-head">
+      <h3>My Builds</h3>
+      <select id="my-builds-hero-select" onchange="loadMyBuilds()"></select>
+      <button class="build-refresh-btn" id="my-builds-add-btn" onclick="showMyBuildsForm(null)">+ Add Archetype</button>
+    </div>
+    <div class="build-status" id="my-builds-conflict" style="display:none"></div>
+    <div id="my-builds-toggle-row"></div>
+    <div id="my-builds-form-area" style="display:none"></div>
+    <div id="my-builds-list"></div>
   </div>
 
   <!-- Run history (hidden by default) -->
@@ -696,12 +699,20 @@ async function loadBuildRefreshStatus({ notify=false } = {}) {
   }
 }
 
+function _refreshPanelOpenClass() {
+  const buildOpen = document.getElementById('build-panel')?.classList.contains('visible');
+  const myOpen = document.getElementById('my-builds-panel')?.classList.contains('visible');
+  document.body.classList.toggle('panel-open', !!(buildOpen || myOpen));
+}
+
 function toggleBuildPanel(force) {
   const el = document.getElementById('build-panel');
   if (!el) return;
   const show = typeof force === 'boolean' ? force : !el.classList.contains('visible');
+  if (show) toggleMyBuildsPanel(false);
   el.classList.toggle('visible', show);
   document.getElementById('builds-btn').textContent = show ? 'Hide Builds' : 'Build Data';
+  _refreshPanelOpenClass();
   if (show) {
     loadBuildRefreshStatus();
     if (location.pathname !== '/builds') history.replaceState(null, '', '/builds');
@@ -721,6 +732,7 @@ async function refreshBuilds() {
     renderBuildPanel(status);
     renderBuildRefreshNotice(status);
     loadBuildRefreshStatus({ notify: true });
+    checkMyBuildsConflicts();
   } catch(e) {
     const statusEl = document.getElementById('build-refresh-status');
     if (statusEl) {
@@ -731,10 +743,326 @@ async function refreshBuilds() {
   }
 }
 
+// ── My Builds panel ─────────────────────────────────────────────
+
+function toggleMyBuildsPanel(force) {
+  const el = document.getElementById('my-builds-panel');
+  if (!el) return;
+  const show = typeof force === 'boolean' ? force : !el.classList.contains('visible');
+  if (show) toggleBuildPanel(false);
+  el.classList.toggle('visible', show);
+  const btn = document.getElementById('my-builds-btn');
+  if (btn) btn.textContent = show ? 'Hide My Builds' : 'My Builds';
+  _refreshPanelOpenClass();
+  if (show) {
+    populateMyBuildsHeroSelect();
+    loadMyBuilds();
+    if (location.pathname !== '/my-builds') history.replaceState(null, '', '/my-builds');
+  } else if (location.pathname === '/my-builds') {
+    history.replaceState(null, '', '/');
+  }
+}
+
+function populateMyBuildsHeroSelect() {
+  const sel = document.getElementById('my-builds-hero-select');
+  if (!sel) return;
+  const heroes = Array.from(knownBuildHeroKeys(currentBuildStatus));
+  const current = sel.value;
+  sel.innerHTML = heroes.map(h =>
+    `<option value="${esc(h)}"${h === current ? ' selected' : ''}>${esc(h.charAt(0).toUpperCase() + h.slice(1))}</option>`
+  ).join('');
+}
+
+async function loadMyBuilds() {
+  const sel = document.getElementById('my-builds-hero-select');
+  const hero = sel ? sel.value : '';
+  if (!hero) return;
+  try {
+    const data = await api(`/api/builds/user/${encodeURIComponent(hero)}`);
+    renderMyBuilds(data);
+  } catch(e) {
+    const listEl = document.getElementById('my-builds-list');
+    if (listEl) listEl.innerHTML = `<div class="build-status visible status-failed">Failed to load user builds: ${esc(e.message)}</div>`;
+  }
+}
+
+function _myBuildsArchetypes(data) {
+  // Defensively gather archetypes from both phases
+  const catalog = (data && data.catalog) || {};
+  const phases = (catalog.game_phases) || {};
+  const em = (phases.early_mid && phases.early_mid.archetypes) || [];
+  const late = (phases.late && phases.late.archetypes) || [];
+  return { early_mid: em, late };
+}
+
+function _provenanceBadge(archetype, data) {
+  const prov = (data && data.provenance) || {};
+  let isUser = false;
+  if (Array.isArray(prov.user_archetype_names)) {
+    isUser = prov.user_archetype_names.includes(archetype.name);
+  } else {
+    isUser = prov.source === 'user_builds' || prov.user_file_exists === true;
+  }
+  return isUser
+    ? `<span class="badge badge-victory">user</span>`
+    : `<span class="badge badge-unknown">catalog</span>`;
+}
+
+function renderMyBuilds(data) {
+  const listEl = document.getElementById('my-builds-list');
+  const toggleRow = document.getElementById('my-builds-toggle-row');
+  if (!listEl) return;
+
+  const { early_mid, late } = _myBuildsArchetypes(data);
+  const prov = (data && data.provenance) || {};
+  const enabled = prov.user_file_enabled !== false;
+
+  if (toggleRow) {
+    toggleRow.innerHTML = prov.user_file_exists
+      ? `<div style="margin-bottom:8px;font-size:0.8rem;color:var(--text-secondary)">
+           User catalog: <strong style="color:var(--text-primary)">${esc(prov.filename || '')}</strong>
+           &nbsp;|&nbsp; Last updated: ${esc(prov.last_updated || 'unknown')}
+           &nbsp;|&nbsp;
+           <button class="build-refresh-btn" onclick="toggleMyBuildsEnabled(${!enabled})">${enabled ? 'Disable' : 'Enable'}</button>
+         </div>`
+      : `<div style="margin-bottom:8px;font-size:0.8rem;color:var(--text-muted)">No user catalog file yet. Add an archetype to create one.</div>`;
+  }
+
+  if (!early_mid.length && !late.length) {
+    listEl.innerHTML = '<div class="empty-state" style="padding:10px 0">No archetypes found. Click "+ Add Archetype" to create one.</div>';
+    return;
+  }
+
+  function archetypeRow(arch, phase) {
+    const itemCount = [
+      (arch.carry_items || []).length,
+      (arch.support_items || []).length,
+      (arch.core_items || []).length,
+      (arch.condition_items || []).length,
+    ];
+    const badge = _provenanceBadge(arch, data);
+    const phaseLbl = phase === 'early_mid' ? 'Early Mid' : 'Late';
+    return `<div class="build-note" style="margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span style="font-weight:700;color:var(--text-primary)">${esc(arch.name || '?')}</span>
+        ${badge}
+        <span class="badge badge-unknown">${esc(phaseLbl)}</span>
+        ${arch.timing_profile ? `<span class="badge badge-unknown">${esc(arch.timing_profile)}</span>` : ''}
+        <span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted)">
+          carry:${itemCount[0]} support:${itemCount[1]}${itemCount[2] ? ` core:${itemCount[2]}` : ''}
+        </span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="build-refresh-btn" onclick='showMyBuildsForm(${JSON.stringify(Object.assign({}, arch, {_phase: phase}))})'>Edit</button>
+        <button class="build-refresh-btn" onclick="deleteMyBuildsArchetype(${JSON.stringify(arch.name)})">Delete</button>
+      </div>
+    </div>`;
+  }
+
+  let html = '';
+  if (early_mid.length) {
+    html += `<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:8px 0 4px">Early Mid</div>`;
+    html += early_mid.map(a => archetypeRow(a, 'early_mid')).join('');
+  }
+  if (late.length) {
+    html += `<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:8px 0 4px">Late</div>`;
+    html += late.map(a => archetypeRow(a, 'late')).join('');
+  }
+  listEl.innerHTML = html;
+}
+
+function showMyBuildsForm(archetype) {
+  const area = document.getElementById('my-builds-form-area');
+  if (!area) return;
+  const isNew = archetype === null;
+  const a = archetype || {};
+  const joinItems = arr => Array.isArray(arr) ? arr.join(', ') : (arr || '');
+  const timingOptions = ['', 'tempo', 'scaling', 'exodia', 'neutral'];
+  const timingSelect = timingOptions.map(t =>
+    `<option value="${t}"${(a.timing_profile || '') === t ? ' selected' : ''}>${t || '(none)'}</option>`
+  ).join('');
+  const phaseOptions = ['early_mid', 'late'].map(p =>
+    `<option value="${p}"${(a._phase || a.phase || 'early_mid') === p ? ' selected' : ''}>${p === 'early_mid' ? 'Early Mid' : 'Late'}</option>`
+  ).join('');
+
+  area.style.display = 'block';
+  area.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:10px;background:var(--bg-card)">
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:10px">${isNew ? 'New Archetype' : 'Edit Archetype'}</div>
+      <div style="display:grid;gap:8px">
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Name *
+          <input id="mbf-name" type="text" value="${esc(a.name || '')}" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem;box-sizing:border-box">
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Phase *
+          <select id="mbf-phase" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem">${phaseOptions}</select>
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Core Items (comma-separated)
+          <textarea id="mbf-core_items" rows="2" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem;box-sizing:border-box;resize:vertical">${esc(joinItems(a.core_items))}</textarea>
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Carry Items * (comma-separated)
+          <textarea id="mbf-carry_items" rows="2" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem;box-sizing:border-box;resize:vertical">${esc(joinItems(a.carry_items))}</textarea>
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Support Items * (comma-separated)
+          <textarea id="mbf-support_items" rows="2" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem;box-sizing:border-box;resize:vertical">${esc(joinItems(a.support_items))}</textarea>
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Condition Items (comma-separated)
+          <textarea id="mbf-condition_items" rows="2" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem;box-sizing:border-box;resize:vertical">${esc(joinItems(a.condition_items))}</textarea>
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Timing Profile
+          <select id="mbf-timing_profile" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem">${timingSelect}</select>
+        </label>
+        <label style="font-size:0.8rem;color:var(--text-secondary)">Notes
+          <textarea id="mbf-notes" rows="3" style="display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:5px 8px;font-family:var(--font-body);font-size:0.82rem;box-sizing:border-box;resize:vertical">${esc(a.notes || '')}</textarea>
+        </label>
+      </div>
+      <div id="my-builds-form-error" style="display:none;color:var(--red);font-size:0.82rem;margin-top:6px"></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="build-refresh-btn" onclick="submitMyBuildsForm()">Save</button>
+        <button class="build-refresh-btn" onclick="document.getElementById('my-builds-form-area').style.display='none'">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function _splitItems(str) {
+  return String(str || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+async function submitMyBuildsForm() {
+  const errEl = document.getElementById('my-builds-form-error');
+  function showErr(msg) {
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+  }
+  if (errEl) errEl.style.display = 'none';
+
+  const name = (document.getElementById('mbf-name') || {}).value || '';
+  const phase = (document.getElementById('mbf-phase') || {}).value || '';
+  const carry_items = _splitItems((document.getElementById('mbf-carry_items') || {}).value);
+  const support_items = _splitItems((document.getElementById('mbf-support_items') || {}).value);
+
+  if (!name.trim()) { showErr('Name is required.'); return; }
+  if (!phase) { showErr('Phase is required.'); return; }
+  if (!carry_items.length) { showErr('Carry items are required.'); return; }
+  if (!support_items.length) { showErr('Support items are required.'); return; }
+
+  const archetype = {
+    name: name.trim(),
+    phase,
+    carry_items,
+    support_items,
+    core_items: _splitItems((document.getElementById('mbf-core_items') || {}).value),
+    condition_items: _splitItems((document.getElementById('mbf-condition_items') || {}).value),
+    timing_profile: (document.getElementById('mbf-timing_profile') || {}).value || undefined,
+    notes: ((document.getElementById('mbf-notes') || {}).value || '').trim() || undefined,
+  };
+  // Drop undefined keys
+  Object.keys(archetype).forEach(k => archetype[k] === undefined && delete archetype[k]);
+
+  const sel = document.getElementById('my-builds-hero-select');
+  const hero = sel ? sel.value : '';
+  if (!hero) { showErr('No hero selected.'); return; }
+
+  try {
+    const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archetype }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      const msgs = Array.isArray(data.errors) && data.errors.length ? data.errors.join('; ') : `Error ${resp.status}`;
+      showErr(msgs);
+      return;
+    }
+    document.getElementById('my-builds-form-area').style.display = 'none';
+    renderMyBuilds(data);
+  } catch(e) {
+    showErr(`Save failed: ${e.message}`);
+  }
+}
+
+async function deleteMyBuildsArchetype(name) {
+  if (!confirm(`Delete archetype "${name}"?`)) return;
+  const sel = document.getElementById('my-builds-hero-select');
+  const hero = sel ? sel.value : '';
+  if (!hero) return;
+  try {
+    const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      showToast(`Delete failed: ${Array.isArray(data.errors) ? data.errors.join('; ') : resp.status}`);
+      return;
+    }
+    renderMyBuilds(data);
+  } catch(e) {
+    showToast(`Delete failed: ${e.message}`);
+  }
+}
+
+async function toggleMyBuildsEnabled(enabled) {
+  const sel = document.getElementById('my-builds-hero-select');
+  const hero = sel ? sel.value : '';
+  if (!hero) return;
+  const action = enabled ? 'enable' : 'disable';
+  try {
+    const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}/${action}`, { method: 'POST' });
+    if (!resp.ok) throw new Error(`${resp.status}`);
+    loadMyBuilds();
+  } catch(e) {
+    showToast(`Toggle failed: ${e.message}`);
+  }
+}
+
+async function checkMyBuildsConflicts() {
+  const conflictEl = document.getElementById('my-builds-conflict');
+  if (!conflictEl) return;
+  const sel = document.getElementById('my-builds-hero-select');
+  const hero = sel ? sel.value : '';
+  if (!hero) return;
+  try {
+    const data = await api(`/api/builds/user/${encodeURIComponent(hero)}`);
+    const prov = (data && data.provenance) || {};
+    let userNames, refreshedNames;
+
+    if (Array.isArray(prov.user_archetype_names) && Array.isArray(prov.refreshed_archetype_names)) {
+      userNames = new Set(prov.user_archetype_names);
+      refreshedNames = prov.refreshed_archetype_names;
+    } else {
+      // Fall back: derive from merged catalog when provenance lists are absent.
+      const catalog = (data && data.catalog) || {};
+      const phases = catalog.game_phases || {};
+      const em = (phases.early_mid && phases.early_mid.archetypes) || [];
+      const late = (phases.late && phases.late.archetypes) || [];
+      const all = [...em, ...late];
+      userNames = new Set();
+      refreshedNames = [];
+      if (prov.source === 'user_builds' || prov.user_file_exists) {
+        all.forEach(a => userNames.add(a.name));
+      } else {
+        all.forEach(a => refreshedNames.push(a.name));
+      }
+    }
+
+    const conflicts = refreshedNames.filter(n => userNames.has(n));
+    if (conflicts.length) {
+      conflictEl.style.display = 'block';
+      conflictEl.className = 'build-status visible status-failed';
+      conflictEl.textContent = `Name conflict with refreshed catalog: ${conflicts.join(', ')}. Consider renaming your archetypes.`;
+    } else {
+      conflictEl.style.display = 'none';
+      conflictEl.className = 'build-status';
+    }
+  } catch(e) {
+    // Silently ignore — conflict check is best-effort
+  }
+}
+
 // Boot: auto-load latest run
 async function boot() {
   checkUpdates();
   if (location.pathname === '/builds') toggleBuildPanel(true);
+  if (location.pathname === '/my-builds') toggleMyBuildsPanel(true);
   loadBuildRefreshStatus({ notify: true });
   try {
     allRuns = await api('/api/runs');
@@ -800,8 +1128,6 @@ async function loadRun(runId) {
   document.getElementById('main-loading').style.display = 'none';
   document.getElementById('header-sub').textContent =
     `Run #${runId} · ${summary.hero || 'Unknown'} · ${(summary.outcome || 'in progress').toUpperCase()}`;
-  const askBtn = document.getElementById('ask-ai-btn');
-  if (askBtn) askBtn.disabled = false;
 
   renderInsights(decisions, summary);
   renderSummary(summary, decisions);
@@ -1087,76 +1413,6 @@ function showToast(msg, ms=2200) {
   el.classList.add('visible');
   if (_toastTimer) clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.remove('visible'), ms);
-}
-
-// ── UI-06: Ask AI — build run summary and copy to clipboard ──────
-function buildRunSummaryPrompt() {
-  const s = currentSummary || {};
-  const decisions = allDecisions || [];
-  const choiceDecisions = decisions.filter(isChoice);
-
-  // Top 3 flagged / high-severity insights across all decisions.
-  const topInsights = [];
-  for (const d of choiceDecisions) {
-    if (!d.insights || !d.insights.length) continue;
-    for (const ins of d.insights) {
-      if (ins.severity === 'high' || ins.severity === 'medium') {
-        topInsights.push(ins.message);
-        if (topInsights.length >= 3) break;
-      }
-    }
-    if (topInsights.length >= 3) break;
-  }
-
-  const archetype = s.archetype || 'unknown';
-  const commitAt = s.archetype_committed_at != null ? `#${s.archetype_committed_at}` : '?';
-  const flagged = s.flagged_count != null ? s.flagged_count : choiceDecisions.filter(isFlagged).length;
-
-  return [
-    `Analyze Bazaar run #${currentRunId}.`,
-    `Hero: ${s.hero || 'Unknown'}, Outcome: ${s.outcome || 'in progress'}.`,
-    `PvP: ${s.pvp_wins || 0}W / ${s.pvp_losses || 0}L.`,
-    `PvE: ${s.pve_wins || 0}W / ${s.pve_losses || 0}L.`,
-    `Decisions tracked: ${choiceDecisions.length}.`,
-    `Flagged decisions: ${flagged}.`,
-    `Archetype: ${archetype} (committed at ${commitAt}).`,
-    topInsights.length ? `Top issues: ${topInsights.join('; ')}.` : 'Top issues: none flagged.',
-    `What should I improve next run?`,
-  ].join('\n');
-}
-
-async function askAI() {
-  if (!currentRunId || !currentSummary) {
-    showToast('No run loaded yet.');
-    return;
-  }
-  const prompt = buildRunSummaryPrompt();
-
-  // Option A: if running inside a Claude artifact iframe, window.claude.complete or sendPrompt is present.
-  // We probe for both common shapes before falling back to clipboard.
-  try {
-    if (typeof window.sendPrompt === 'function') {
-      window.sendPrompt(prompt);
-      showToast('Run summary sent to Claude.');
-      return;
-    }
-    if (window.claude && typeof window.claude.complete === 'function') {
-      window.claude.complete(prompt);
-      showToast('Run summary sent to Claude.');
-      return;
-    }
-  } catch (e) {
-    // fall through to clipboard fallback
-  }
-
-  // Option B: clipboard fallback for the standalone web app.
-  try {
-    await navigator.clipboard.writeText(prompt);
-    showToast('Copied run summary — paste into Claude.');
-  } catch (e) {
-    // Last-ditch: prompt() so the user can copy manually on old browsers.
-    window.prompt('Copy this run summary and paste into Claude:', prompt);
-  }
 }
 
 // ── Init ─────────────────────────────────────────────────────────

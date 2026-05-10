@@ -114,41 +114,7 @@ Candidates surfaced during the v0.2 prod-readiness design pass. These are explic
 
 ### Yes — Active backlog
 
-### Next parallelizable session — Local Build Override Editor
-
-Goal: implement the Yes-graded Local Build Override Editor in one parallelized session. Phases below are pre-scoped so research → implement → verify can dispatch agents on disjoint file sets.
-
-#### Predefined contracts (must be agreed before parallel work)
-- **Storage layout:** writable user catalog at `app_paths.data_dir() / "user_builds" / "<hero_slug>_user.json"`, one file per hero; same `builds_schema.json` shape as bundled/refreshed catalogs (`schema_version: 1`).
-- **Resolver precedence (in `scorer._load_builds_cached`):** user_builds (writable, per-hero) → refreshed (writable) → bundled. First valid catalog wins. A user file with `"enabled": false` at the top level is skipped.
-- **API routes (under `/api/builds/user/<hero>`):** `GET` returns the merged catalog with provenance metadata; `PUT` upserts a single archetype (validates against schema, returns 400 on schema fail); `DELETE` removes one archetype by name; `POST disable` / `POST enable` flip the `enabled` flag for the hero file. Response body: `{ok: bool, catalog: {...}, errors: [...]}`.
-- **UI contract:** new "My Builds" tab in `web/static/index.html` next to "Build Data". Form fields mirror `archetypes[*]`: name, phase, core_items[], carry_items[], support_items[], condition_items[], timing_profile, notes. Save validates client-side then POSTs to `PUT /api/builds/user/<hero>`. Conflict UI shows a banner when an incoming refresh modifies an archetype the user has overridden (compare archetype names against the user file).
-
-#### Parallel implementation groups
-- **Group A — Resolver + storage:** `scorer.py` (third resolver tier, cache invalidation), `app_paths.py` (new `user_builds/` dir helper), `web/build_helpers.py` (clear `_build_catalog_for_hero` cache on user-catalog write). Write contract-only fixture tests under `tests/test_user_builds_resolver.py` that exercise precedence with synthetic files. Owns no UI files.
-- **Group B — API CRUD:** `web/server.py` (new `/api/builds/user/<hero>` routes; reuse existing `validate_builds_catalog` for schema). Tests in `tests/test_user_builds_api.py` mirror existing `test_server_round2.py` Flask-test-client style. Owns no scorer or UI files.
-- **Group C — Dashboard UI:** `web/static/index.html` (new "My Builds" tab + form + conflict banner). Tests are grep-style assertions in `tests/test_dashboard_my_builds.py`. Owns no Python files except its test.
-
-File conflict map: A and B both touch nothing in C; A touches `build_helpers.py` for the cache hook only — B does not touch that file. Three-way parallel is safe.
-
-#### Verify phase
-One Sonnet verifier per group, dispatched after all three implementations are done (same protocol as round 3). Verifier 1 exercises a write-load-score round-trip via the resolver. Verifier 2 hits the API endpoints with the test client. Verifier 3 reads the dashboard HTML for the My Builds tab + handler wiring.
-
-#### Status
-Open. Researched in round-2 design pass; not yet started.
-
----
-
-**Local Build Override Editor**
-
-- **Goal:** "My Builds" tab in the dashboard where players add, edit, clone, or disable archetypes per hero. Edits are stored in a writable user catalog under `app_paths.data_dir()/user_builds/` and layered on top of (or replacing) bundled and refreshed catalogs. Scorer and overlay consume the merged view automatically.
-- **Status:** Open. Researched.
-- **Estimated effort:** ~3-4 dev days (1 L + 3 M + 2 S chunks).
-- **Relevant files:** `scorer.py` (catalog loader + cache invalidation), `web/build_helpers.py` (`_build_catalog_for_hero` lru_cache), `web/server.py` (new CRUD routes), `web/static/index.html` (new "My Builds" tab), `app_paths.py` (new `user_builds/` dir).
-- **Implementation notes:** The existing writable-vs-bundled precedence pattern from `refresh-builds` is a direct template — user catalogs would be a third tier inserted before writable. Reuse `validate_builds_catalog` for schema validation. Cache invalidation on save: `_build_catalog_for_hero.cache_clear()` plus `_load_builds_cached.cache_clear()`. No scoring logic changes needed. Auto-save fights schema rigidity; prefer explicit "save and validate" with client-side draft state.
-- **Open questions:** Conflict UX when an incoming `refresh-builds` changes an archetype the user edited (recommended for v1: a simple "your edit may differ from the refreshed version" banner). Export/share format — punt to community pack import (see Maybe entry).
-- **Dependencies / blocks:** Building this first unblocks Catalog Pack Import for free (pack import = bulk-create into `user_builds/`). Design the resolver-layer refactor with the pack tier slot in mind upfront.
-- **How to test:** Round-trip a custom archetype write → validate → load → score against; confirm bundled catalog still wins when user catalog disabled; confirm `refresh-builds` does not silently overwrite user edits.
+(Empty — Local Build Override Editor shipped on `feature/local-build-override-editor`.)
 
 ### Maybe — Pending demand or unblock
 
