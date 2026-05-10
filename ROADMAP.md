@@ -19,6 +19,149 @@ Items from prod-readiness verification. P0 = release-blocking, P1 = release-erod
 
 All v0.2 punch list items closed. See git history for change log.
 
+## Discord Alpha — Open Issues (v0.2.0-alpha.1)
+
+Findings from manual installer/runtime verification on 2026-05-10 against packaged version `0.2.0-alpha.1`. Items are ordered P1 → P2 within severity.
+
+**Verification passed:** pytest (192 tests), py_compile, portable build + smoke test, installer build, clean install launch, main "Bazaar Coach" Start Menu shortcut, Doctor shortcut target (`cmd /K "...BazaarCoach.exe" doctor`), overlay + dashboard launch, real game capture (first few actions), SQLite rows + session logs created, diagnostics ZIP created, refresh-builds.
+
+**Open:**
+
+### P1-1 — Terminal windows flash repeatedly while waiting for The Bazaar
+
+**Observed:** Launched installed "Bazaar Coach" shortcut before The Bazaar was running. Multiple PowerShell/cmd-like windows repeatedly opened and closed until the game process appeared, then stopped.
+
+**Impact:** Looks broken/scary to Discord testers. Should wait quietly for the game.
+
+**Expected:** No visible terminal windows during the wait-for-game phase. Overlay/dashboard may show "waiting for game." Once The Bazaar is detected, `capture_mono` attaches normally.
+
+**Likely fix area:**
+- `coach.py` subprocess launch of `capture_mono` in packaged mode
+- Retry loop that re-spawns `capture_mono` while game process is absent
+- Windows subprocess creation flags: `CREATE_NO_WINDOW`, `STARTUPINFO` / `STARTF_USESHOWWINDOW`
+- PyInstaller packaged-binary subprocess behavior (visible console window)
+
+**How to test:**
+1. Install packaged app.
+2. Launch "Bazaar Coach" shortcut before The Bazaar is running.
+3. Confirm no terminal windows flash — overlay/dashboard should wait quietly.
+4. Open The Bazaar and confirm `capture_mono` attaches and decisions flow.
+
+---
+
+### P1-2 — Uninstaller "Yes, remove user data" does not remove user data
+
+**Observed:** After uninstalling and choosing "Yes" to remove user data:
+- `Test-Path "$env:LOCALAPPDATA\BazaarCoach"` → `True`
+- `Test-Path "$env:APPDATA\BazaarCoach"` → `True`
+
+Leftovers: `%LOCALAPPDATA%\BazaarCoach` contained `bazaar_runs.db`, `logs/`, diagnostics ZIP, `builds/`, `static_cache/`. `%APPDATA%\BazaarCoach` contained `settings.json`.
+
+**Impact:** Uninstaller prompt claims data will be removed but does not remove it. Leaves private gameplay/log data behind when user explicitly chooses deletion.
+
+**Expected:**
+- Yes → removes `%LOCALAPPDATA%\BazaarCoach` and `%APPDATA%\BazaarCoach`.
+- No → preserves both directories.
+
+**Likely fix area:** `packaging/installer/BazaarCoach.iss` — Pascal script / uninstall prompt logic, `{localappdata}` and `{userappdata}` path constants, per-user install privilege behavior.
+
+**How to test:**
+1. Install app and generate some data (run the app briefly).
+2. Uninstall → choose **No** → confirm app files removed, user data preserved.
+3. Reinstall → generate data.
+4. Uninstall → choose **Yes** → confirm `%LOCALAPPDATA%\BazaarCoach` and `%APPDATA%\BazaarCoach` are both gone.
+
+---
+
+### P1-3 — Runtime DB leaked into installed PyInstaller `_internal` folder
+
+**Observed:** After uninstalling with "No" (preserve user data), the install folder was not removed because it contained:
+```
+%LOCALAPPDATA%\Programs\Bazaar Coach\0.2.0-alpha.1\_internal\bazaar_runs.db
+%LOCALAPPDATA%\Programs\Bazaar Coach\0.2.0-alpha.1\_internal\bazaar_runs.db-shm
+%LOCALAPPDATA%\Programs\Bazaar Coach\0.2.0-alpha.1\_internal\bazaar_runs.db-wal
+```
+
+**Impact:** Runtime data written into the install directory. Causes uninstall leftovers, risks split DB state (data spread across two locations), and confuses support/diagnostics.
+
+**Expected:**
+- Runtime DB lives only at `%LOCALAPPDATA%\BazaarCoach\bazaar_runs.db`.
+- Settings live only at `%APPDATA%\BazaarCoach\settings.json`.
+- No `bazaar_runs.db*` under `%LOCALAPPDATA%\Programs\Bazaar Coach\`.
+
+**Likely fix area:**
+- `app_paths.py` packaged-mode path detection
+- `capture_mono.py` or another subprocess calling `sqlite3.connect("bazaar_runs.db")` with a relative path
+- PyInstaller subprocess `cwd` defaulting to `_internal`
+- Any fallback path that resolves to CWD when the app-paths detection fails
+
+**How to test:**
+1. Install packaged app.
+2. Launch app and capture at least a few decisions.
+3. Run: `Get-ChildItem "$env:LOCALAPPDATA\Programs\Bazaar Coach" -Recurse -Force -Filter "bazaar_runs.db*" -ErrorAction SilentlyContinue`
+4. Expected: no results.
+5. Confirm DB exists at `%LOCALAPPDATA%\BazaarCoach\bazaar_runs.db`.
+
+---
+
+### P2/P1-4 — Installed GUI exe support commands silent in terminal
+
+**Observed:** From installed app directory:
+```
+.\BazaarCoach.exe doctor
+.\BazaarCoach.exe refresh-builds
+.\BazaarCoach.exe export-diagnostics
+```
+Printed no output in PowerShell. Commands did execute (`export-diagnostics` created a ZIP; `refresh-builds` appeared to work), but there was no visible confirmation.
+
+**Note:** Start Menu "Doctor" shortcut correctly opens `cmd /K "...BazaarCoach.exe" doctor` and does show output — so there is a working support path for testers.
+
+**Impact:** Direct terminal invocation appears broken even when commands succeed. Testers may not know the supported path is the Start Menu shortcut.
+
+**Expected / options:**
+- Provide a console-mode binary (`BazaarCoachCLI.exe`) for `doctor`/`refresh-builds`/`export-diagnostics`.
+- Provide `.cmd` wrappers that open a visible window with output and log location hints.
+- Or keep GUI exe as-is and update release notes / Discord alpha guide to steer testers to the Start Menu Doctor shortcut and the session log file.
+
+**How to test:**
+- Run installed support commands via the intended path (Start Menu shortcut or wrapper).
+- Confirm testers can read `doctor` output and locate diagnostic ZIPs.
+
+---
+
+### P2-5 — Shutdown logs SQLite thread-close warning
+
+**Observed log line during normal shutdown:**
+```
+[DB] close_shared_conn failed: SQLite objects created in a thread can only be used in that same thread. The object was created in thread id 16296 and this is thread id 7256.
+```
+
+**Impact:** Likely harmless (data written, shutdown completed cleanly), but looks alarming in diagnostics bundles shared by testers.
+
+**Likely fix area:** `db.py` shared connection lifecycle / writer thread shutdown path — connection being closed from a different thread than it was opened on.
+
+**How to test:**
+1. Install app, capture at least one decision, shut down normally.
+2. Confirm latest `logs/coach_*.log` has no SQLite thread-close warning on exit.
+
+---
+
+### P2-6 — Some early run item names unresolved
+
+**Observed during real run capture:**
+- `ShopPage Bought: ['Flying Squirrel', 'Worry Wart'] | Passed on: ['itm_ikyo_pq']`
+- `Decision #3 🛒 Unknown | Inferred from shop select command`
+
+**Impact:** Acceptable alpha caveat if infrequent; worth tracking as name-resolution polish.
+
+**Likely fix area:** `name_resolver.py`, `run_state.py` shop decision paths, Mono template notification timing relative to first shop decisions.
+
+**How to test:**
+- Start a new run and capture the first shop decisions.
+- Confirm bought/passed/review rows prefer human-readable names and do not regress previously resolved paths.
+
+---
+
 ## Open Feature Work
 
 ### Multi-Hero Support - On Hold

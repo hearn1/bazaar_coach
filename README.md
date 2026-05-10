@@ -88,10 +88,10 @@ Tests live in `tests/` and are configured through `pytest.ini`.
 
 ```
 python -m pytest -q
-python -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_images.py settings.py card_cache.py content_manifest.py
+python -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_builds.py refresh_images.py settings.py card_cache.py content_manifest.py web/server.py
 ```
 
-Latest local verification: `python -m pytest -q` reports 68 tests passing.
+Latest local verification: `python -m pytest -q` reports 192 tests passing.
 
 ## Diagnostics
 
