@@ -14,8 +14,8 @@ AppId={{E5A3F7C2-1D94-4B8E-AF61-3C07D5E82A40}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Bazaar Coach
-AppPublisherURL=https://github.com/
-AppSupportURL=https://github.com/
+AppPublisherURL=https://github.com/hearn1/bazaar_coach
+AppSupportURL=https://github.com/hearn1/bazaar_coach
 DefaultDirName={autopf}\Bazaar Coach\{#AppVersion}
 DefaultGroupName=Bazaar Coach
 DisableProgramGroupPage=yes
@@ -42,7 +42,7 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 
 [Icons]
 Name: "{group}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"
-Name: "{group}\Bazaar Coach Doctor"; Filename: "{app}\BazaarCoach.exe"; Parameters: "doctor"; WorkingDir: "{app}"
+Name: "{group}\Bazaar Coach Doctor"; Filename: "{cmd}"; Parameters: "/K ""{app}\BazaarCoach.exe"" doctor"; WorkingDir: "{app}"
 Name: "{group}\Uninstall Bazaar Coach"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
