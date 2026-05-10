@@ -1,5 +1,5 @@
 """
-settings.py — Persistent settings management for Bazaar Tracker.
+settings.py — Persistent settings management for Bazaar Coach.
 
 Provides a simple, thread-safe module-level API for getting/setting configuration
 values with atomic file I/O. Settings are stored in JSON format with a schema version
@@ -24,7 +24,7 @@ Usage:
     path = settings.settings_path()
 
 Location priority:
-  1. BAZAAR_TRACKER_SETTINGS_DIR env var override
+  1. BAZAAR_COACH_SETTINGS_DIR env var override
   2. Repo-local settings.json during development
   3. User settings dir when packaged or path overrides are active
 """
@@ -38,7 +38,7 @@ from typing import Any, Optional
 
 import app_paths
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 DEFAULTS = {
@@ -53,7 +53,7 @@ DEFAULTS = {
         "collapsed": False,
         "always_on_top": True,
     },
-    "tracker": {
+    "coach": {
         "log_path_override": None,
         "skip_mono": False,
         "skip_overlay": False,
@@ -158,7 +158,7 @@ def get(key: str, default: Any = None) -> Any:
     
     Examples:
         settings.get("overlay.geometry.width", 320)
-        settings.get("tracker.skip_mono", False)
+        settings.get("coach.skip_mono", False)
     
     Args:
         key: Dotted path to the setting (e.g., "overlay.geometry.width").
@@ -253,6 +253,9 @@ def migrate_settings(data: dict) -> dict:
             f"than app schema {SCHEMA_VERSION}."
         )
         return out
+
+    if current_version < 4 and "tracker" in out and "coach" not in out:
+        out["coach"] = out.pop("tracker")
 
     out["schema_version"] = SCHEMA_VERSION
     return out

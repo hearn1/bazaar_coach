@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller onedir spec for Bazaar Tracker.
+"""PyInstaller onedir spec for Bazaar Coach.
 
 Build from the repository root:
-    pyinstaller packaging/pyinstaller/BazaarTracker.spec --noconfirm --clean
+    pyinstaller packaging/pyinstaller/BazaarCoach.spec --noconfirm --clean
 """
 
 from pathlib import Path
@@ -40,7 +40,7 @@ hiddenimports = [
 block_cipher = None
 
 a = Analysis(
-    [str(ROOT / "tracker.py")],
+    [str(ROOT / "coach.py")],
     pathex=[str(ROOT)],
     binaries=[],
     datas=datas,
@@ -69,7 +69,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="BazaarTracker",
+    name="BazaarCoach",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -90,5 +90,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="BazaarTracker",
+    name="BazaarCoach",
 )

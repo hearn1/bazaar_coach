@@ -1,4 +1,4 @@
-"""Doctor checks and diagnostic export for Bazaar Tracker."""
+"""Doctor checks and diagnostic export for Bazaar Coach."""
 
 from __future__ import annotations
 
@@ -302,7 +302,7 @@ def collect_doctor_report() -> dict:
     checks.append(_result(
         "app",
         "ok",
-        f"Bazaar Tracker {APP_VERSION} on Python {platform.python_version()}",
+        f"Bazaar Coach {APP_VERSION} on Python {platform.python_version()}",
         app_version=APP_VERSION,
         python=sys.version,
         platform=platform.platform(),
@@ -427,7 +427,7 @@ def collect_doctor_report() -> dict:
         versions=deps,
     ))
 
-    process_info = _detect_bazaar_process(settings.get("tracker.mono_process_name", "TheBazaar.exe"))
+    process_info = _detect_bazaar_process(settings.get("coach.mono_process_name", "TheBazaar.exe"))
     if process_info.get("checked"):
         checks.append(_result(
             "Bazaar process",
@@ -448,7 +448,7 @@ def collect_doctor_report() -> dict:
 
     checks.append(_check_webview2())
 
-    port = int(settings.get("tracker.web_port", 5555) or 5555)
+    port = int(settings.get("coach.web_port", 5555) or 5555)
     if _connect_port("127.0.0.1", port):
         checks.append(_result("web port", "warn", f"Port {port} is already in use", port=port))
     elif _can_bind_port("127.0.0.1", port):
@@ -456,9 +456,9 @@ def collect_doctor_report() -> dict:
     else:
         checks.append(_result("web port", "fail", f"Port {port} cannot be bound", port=port))
 
-    retention_days = int(settings.get("tracker.db_retention_days", 0) or 0)
+    retention_days = int(settings.get("coach.db_retention_days", 0) or 0)
     if retention_days < 90:
-        checks.append(_result("retention", "ok", "disabled (set tracker.db_retention_days >=90 to enable)"))
+        checks.append(_result("retention", "ok", "disabled (set coach.db_retention_days >=90 to enable)"))
     else:
         checks.append(_result("retention", "ok", f">={retention_days} days; runs older than that are pruned at startup"))
 
@@ -502,7 +502,7 @@ def _write_json(zipf: zipfile.ZipFile, name: str, data: Any) -> None:
 def export_diagnostics(output: Path | None = None, *, include_db: bool = False) -> Path:
     report = collect_doctor_report()
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output = output or (app_paths.logs_dir() / f"bazaar_tracker_diagnostics_{stamp}.zip")
+    output = output or (app_paths.logs_dir() / f"bazaar_coach_diagnostics_{stamp}.zip")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     settings_data = settings.load()
@@ -543,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         command = "doctor"
 
-    parser = argparse.ArgumentParser(description="Bazaar Tracker diagnostics")
+    parser = argparse.ArgumentParser(description="Bazaar Coach diagnostics")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     parser.add_argument("--output", type=Path, default=None, help="Diagnostics zip output path")
     parser.add_argument("--include-db", action="store_true", help="Include the full run database in the diagnostics zip")

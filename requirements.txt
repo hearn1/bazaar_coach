@@ -1,4 +1,4 @@
-# Bazaar Tracker runtime + test dependencies.
+# Bazaar Coach runtime + test dependencies.
 # Versions pinned to what was verified available locally; the three
 # unpinned packages are environment-sensitive (Windows-only venv or
 # game-build-dependent) and cannot be pinned from this checkout.

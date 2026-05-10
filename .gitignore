@@ -1,4 +1,4 @@
-# Bazaar Tracker local/generated files
+# Bazaar Coach local/generated files
 
 # Python bytecode and test caches
 __pycache__/
@@ -32,7 +32,7 @@ sqlite3.Connection
 
 # Diagnostics and smoke-test artifacts
 *diagnostics*.zip
-bazaar_tracker_diagnostics_*.zip
+bazaar_coach_diagnostics_*.zip
 packaging/pyinstaller/smoke_test_output/
 
 # Claude Code local files

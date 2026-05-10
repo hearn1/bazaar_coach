@@ -1,1 +1,1 @@
-# web/ — Bazaar Tracker dashboard
+# web/ — Bazaar Coach dashboard

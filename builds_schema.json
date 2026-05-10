@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Bazaar Tracker Build Catalog",
+  "title": "Bazaar Coach Build Catalog",
   "description": "Schema for <hero>_builds.json catalogs consumed by scorer.py and web/build_helpers.py. Required fields are strict; additionalProperties: true so the enricher can add new optional fields without a coordinated schema bump.",
   "type": "object",
   "required": ["schema_version", "hero", "season", "last_updated", "notes", "item_tier_list", "game_phases"],

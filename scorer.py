@@ -1,5 +1,5 @@
 """
-scorer.py — Live scoring engine and manual report tooling for Bazaar tracker.
+scorer.py — Live scoring engine and manual report tooling for Bazaar Coach.
 
 LiveScorer evaluates each decision against the active hero's build catalog as
 RunState records it:
@@ -1832,7 +1832,7 @@ def print_report(scored: list, run_id: int):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Print a manual Bazaar tracker scoring report without rewriting stored scores"
+        description="Print a manual Bazaar Coach scoring report without rewriting stored scores"
     )
     parser.add_argument(
         "--run-id",

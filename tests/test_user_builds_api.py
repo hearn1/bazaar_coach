@@ -52,8 +52,8 @@ def _isolate_catalog_cache():
 
 @pytest.fixture()
 def tmp_data_dir(tmp_path, monkeypatch):
-    """Point BAZAAR_TRACKER_DATA_DIR at a fresh temp dir for each test."""
-    monkeypatch.setenv("BAZAAR_TRACKER_DATA_DIR", str(tmp_path))
+    """Point BAZAAR_COACH_DATA_DIR at a fresh temp dir for each test."""
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
     return tmp_path
 
 

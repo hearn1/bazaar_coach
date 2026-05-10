@@ -1,4 +1,4 @@
-"""Content manifest helpers for Bazaar Tracker static API cache."""
+"""Content manifest helpers for Bazaar Coach static API cache."""
 
 from __future__ import annotations
 

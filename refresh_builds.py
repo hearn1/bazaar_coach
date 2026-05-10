@@ -1,4 +1,4 @@
-"""Refresh writable build catalogs from the tracker repo's published main branch."""
+"""Refresh writable build catalogs from the coach repo's published main branch."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import requests
 import app_paths
 import scorer
 
-RAW_BASE_URL = "https://raw.githubusercontent.com/hearn1/bazaar_tracker/main"
+RAW_BASE_URL = "https://raw.githubusercontent.com/hearn1/bazaar_coach/main"
 REQUEST_TIMEOUT_SECONDS = 12
 
 _RETRYABLE_STATUSES = {429, 502, 503, 504}

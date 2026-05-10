@@ -1,4 +1,4 @@
-"""Non-blocking release update checks for Bazaar Tracker."""
+"""Non-blocking release update checks for Bazaar Coach."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def is_newer_version(latest: str, current: str = APP_VERSION) -> bool:
 def _load_manifest_from_url(url: str, timeout: float) -> dict:
     if url.startswith("file://"):
         return json.loads(Path(url[7:]).read_text(encoding="utf-8"))
-    request = urllib.request.Request(url, headers={"User-Agent": f"BazaarTracker/{APP_VERSION}"})
+    request = urllib.request.Request(url, headers={"User-Agent": f"BazaarCoach/{APP_VERSION}"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return json.loads(response.read().decode(charset))
@@ -161,7 +161,7 @@ def dismiss_update(version: str) -> dict:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check Bazaar Tracker release manifest")
+    parser = argparse.ArgumentParser(description="Check Bazaar Coach release manifest")
     parser.add_argument("--manifest-url", default=None)
     parser.add_argument("--channel", choices=sorted(CHANNELS), default=None)
     parser.add_argument("--timeout", type=float, default=2.5)

@@ -1,20 +1,20 @@
-# Bazaar Tracker — Windows Installer
+# Bazaar Coach — Windows Installer
 
-Inno Setup wraps the PyInstaller `dist/BazaarTracker` onedir into a single-file
+Inno Setup wraps the PyInstaller `dist/BazaarCoach` onedir into a single-file
 Windows installer.
 
 ## Build flow
 
 ```
-pyinstaller packaging/pyinstaller/BazaarTracker.spec --noconfirm --clean
-    -> dist/BazaarTracker/          (onedir portable build)
+pyinstaller packaging/pyinstaller/BazaarCoach.spec --noconfirm --clean
+    -> dist/BazaarCoach/          (onedir portable build)
 
 packaging/installer/build_installer.ps1
-    -> dist/installer/BazaarTrackerSetup-<version>.exe
+    -> dist/installer/BazaarCoachSetup-<version>.exe
 ```
 
 Run the PyInstaller step first; `build_installer.ps1` will throw if
-`dist/BazaarTracker/BazaarTracker.exe` is absent.
+`dist/BazaarCoach/BazaarCoach.exe` is absent.
 
 ## Build entrypoint
 
@@ -29,18 +29,18 @@ Inno Setup 6 (`ISCC.exe`) must be installed or passed via `-InnoSetupCompiler`.
 
 ## Output
 
-`dist/installer/BazaarTrackerSetup-<version>.exe`
+`dist/installer/BazaarCoachSetup-<version>.exe`
 
 ## Install behavior
 
 - Requires admin elevation.
-- Installs to `Program Files\Bazaar Tracker\<version>` (versioned side-by-side).
-- Post-install optionally runs `BazaarTracker.exe doctor` to validate the setup.
+- Installs to `Program Files\Bazaar Coach\<version>` (versioned side-by-side).
+- Post-install optionally runs `BazaarCoach.exe doctor` to validate the setup.
 
 ## Uninstall
 
-Uninstall prompts whether to also remove `%APPDATA%\BazaarTracker` and
-`%LOCALAPPDATA%\BazaarTracker` (settings, logs, database, cache). Choosing No
+Uninstall prompts whether to also remove `%APPDATA%\BazaarCoach` and
+`%LOCALAPPDATA%\BazaarCoach` (settings, logs, database, cache). Choosing No
 leaves all user data intact.
 
 ## AV / SmartScreen warnings
@@ -60,11 +60,11 @@ factors commonly trigger Windows Defender and commercial AV scanners:
 
 1. SmartScreen may show "Windows protected your PC" on first launch. Click
    **More info**, then **Run anyway**.
-2. Defender or a third-party AV may quarantine `BazaarTracker.exe` or a Frida
+2. Defender or a third-party AV may quarantine `BazaarCoach.exe` or a Frida
    helper DLL. If this happens, restore the file from quarantine and add
    exclusions for:
-   - The install directory: `C:\Program Files\Bazaar Tracker\<version>\`
-   - The user data directory: `%LOCALAPPDATA%\BazaarTracker\`
+   - The install directory: `C:\Program Files\Bazaar Coach\<version>\`
+   - The user data directory: `%LOCALAPPDATA%\BazaarCoach\`
 
 These warnings are a consequence of the unsigned-alpha state and Frida's
 legitimate but uncommon technique. A code-signed release will reduce (but not
