@@ -137,6 +137,14 @@ def image_cache_dir() -> Path:
     return static_cache_dir() / "images"
 
 
+def user_builds_dir() -> Path:
+    return data_dir() / "user_builds"
+
+
+def user_builds_path(hero_slug: str) -> Path:
+    return user_builds_dir() / f"{hero_slug}_user.json"
+
+
 _PLAYER_LOG_SUFFIX = ("Tempo Storm", "The Bazaar", "Player.log")
 
 

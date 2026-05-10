@@ -2133,7 +2133,10 @@
                 <div class="run-pill ${escapeHtml(runPill.tone)}">${escapeHtml(runPill.label)}</div>
               </div>
             </div>
-            ${canLeaveCompletedRun ? `<div class="header-actions"><button class="header-action" type="button" data-dismiss-run="true">Leave Run</button></div>` : ""}
+            <div class="header-actions">
+              <button class="header-action" type="button" data-open-dashboard="true" title="Open dashboard to edit your build catalog">Edit Builds</button>
+              ${canLeaveCompletedRun ? `<button class="header-action" type="button" data-dismiss-run="true">Leave Run</button>` : ""}
+            </div>
             <button class="header-quit" type="button" title="Close tracker" onclick="window.pywebview.api.request_shutdown()">×</button>
           </div>
         </div>
@@ -3050,6 +3053,15 @@
       if (dismissRun && root.contains(dismissRun)) {
         event.preventDefault();
         dismissCompletedRun();
+        return;
+      }
+
+      const openDashboard = event.target.closest("[data-open-dashboard='true']");
+      if (openDashboard && root.contains(openDashboard)) {
+        event.preventDefault();
+        try {
+          window.pywebview?.api?.open_dashboard?.("/my-builds");
+        } catch (e) { /* no-op */ }
         return;
       }
 

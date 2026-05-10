@@ -54,6 +54,13 @@ def _build_catalog_for_hero(hero_name: str) -> tuple[dict, frozenset[str]]:
     return build_data, frozenset(relevant_items)
 
 
+def invalidate_catalog_cache(hero: str | None = None) -> None:
+    """Clear cached catalog state. ``hero`` is currently ignored — lru_cache
+    has no per-key clear, so we drop everything. Accepted for forward-compat."""
+    _build_catalog_for_hero.cache_clear()
+    scorer._load_builds_cached.cache_clear()
+
+
 def load_builds(hero: Optional[str] = None) -> tuple[dict, set[str]]:
     """Return (build_data, relevant_items_set) for the given hero."""
     hero_name = scorer.normalize_hero_name(hero) or scorer.DEFAULT_HERO

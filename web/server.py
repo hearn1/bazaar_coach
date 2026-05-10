@@ -20,15 +20,18 @@ Or import and start from tracker.py:
 """
 
 import json
+import os
 import re
 import sqlite3
 import argparse
+import tempfile
 import threading
 import sys
 import traceback
 from datetime import datetime, timezone
 from typing import Optional, Callable
 from pathlib import Path
+from urllib.parse import unquote
 
 import app_paths
 
@@ -50,6 +53,7 @@ from web.build_helpers import (
     condition_items_for_archetype,
     infer_archetype_from_decisions,
     build_run_summary,
+    invalidate_catalog_cache,
 )
 from web.overlay_state import build_overlay_state, _get_pvp_record
 from web.review_builder import format_decision_row
@@ -158,6 +162,11 @@ def index():
 
 @app.route("/builds")
 def builds_page():
+    return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/my-builds")
+def my_builds_page():
     return send_from_directory(app.static_folder, "index.html")
 
 
@@ -340,6 +349,279 @@ def api_builds_refresh_status():
 def api_builds_refresh():
     _start_build_refresh("manual")
     return jsonify(_build_refresh_status_payload()), 202
+
+
+# ── Routes — user build overrides ─────────────────────────────────────────────
+
+def _atomic_write_user_builds_bytes(path: Path, content: bytes) -> None:
+    """Atomically write ``content`` to ``path`` using a temp-file + os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+            delete=False,
+        ) as handle:
+            temp_name = handle.name
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+        temp_name = None
+    finally:
+        if temp_name:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _user_builds_skeleton(hero_display: str) -> dict:
+    """Return a minimal valid user catalog skeleton for the given hero.
+
+    Uses empty strings for season/last_updated so the catalog passes
+    validate_builds_catalog (null is not accepted by the schema's oneOf/type).
+    """
+    return {
+        "schema_version": 1,
+        "hero": hero_display,
+        "season": "",
+        "last_updated": "",
+        "notes": "",
+        "enabled": True,
+        "item_tier_list": {},
+        "pivot_signals": {"signals": []},
+        "scoring_weights": {"core": 0.50, "carry": 0.35, "support": 0.15},
+        "game_phases": {
+            "early": {
+                "day_range": "Days 1-4",
+                "description": "",
+                "universal_utility_items": [],
+                "economy_items": [],
+            },
+            "early_mid": {
+                "day_range": "Days 5-9",
+                "description": "",
+                "archetypes": [],
+            },
+            "late": {
+                "day_range": "Days 10+",
+                "description": "",
+                "archetypes": [],
+            },
+        },
+    }
+
+
+def _load_user_file(path: Path, hero_display: str) -> dict:
+    """Load user builds file if it exists, otherwise return a fresh skeleton."""
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return _user_builds_skeleton(hero_display)
+
+
+def _user_builds_hero_or_404(hero: str):
+    """Normalize hero and return (hero_slug, hero_display, path) or None on unknown hero."""
+    hero_slug = scorer.normalize_hero_name(hero).lower()
+    if scorer._catalog_filename_or_none(hero_slug) is None:
+        return None
+    hero_display = hero_slug.title()
+    path = app_paths.user_builds_path(hero_slug)
+    return hero_slug, hero_display, path
+
+
+@app.route("/api/builds/user/<hero>", methods=["GET"])
+def api_user_builds_get(hero: str):
+    """Return merged catalog with provenance metadata for the given hero."""
+    try:
+        resolved = _user_builds_hero_or_404(hero)
+        if resolved is None:
+            return jsonify({"ok": False, "errors": [f"unknown hero: {hero}"], "catalog": {}}), 404
+        hero_slug, hero_display, user_path = resolved
+
+        # Merged catalog (follows resolver precedence: user -> writable -> bundled)
+        try:
+            build_data, _relevant = load_builds(hero_slug)
+        except Exception as exc:
+            build_data = {}
+            _ = exc  # non-fatal; provenance still reported
+
+        # Provenance
+        status = scorer.catalog_source_status(hero_slug)
+        user_file_exists = user_path.exists()
+        user_file_enabled = True
+        user_archetype_names: list[str] = []
+        if user_file_exists:
+            try:
+                raw = json.loads(user_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    user_file_enabled = raw.get("enabled", True) is not False
+                    for phase_data in raw.get("game_phases", {}).values():
+                        for arch in phase_data.get("archetypes", []):
+                            name = arch.get("name")
+                            if name:
+                                user_archetype_names.append(name)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Archetype names from the merged (non-user) tiers for conflict detection
+        refreshed_archetype_names: list[str] = []
+        if status.get("source") not in ("user_builds", "empty"):
+            for phase_data in build_data.get("game_phases", {}).values():
+                for arch in phase_data.get("archetypes", []):
+                    name = arch.get("name")
+                    if name and name not in refreshed_archetype_names:
+                        refreshed_archetype_names.append(name)
+
+        provenance = {
+            "source": status.get("source"),
+            "filename": status.get("filename"),
+            "last_updated": status.get("last_updated"),
+            "user_file_exists": user_file_exists,
+            "user_file_enabled": user_file_enabled,
+            "user_archetype_names": user_archetype_names,
+            "refreshed_archetype_names": refreshed_archetype_names,
+        }
+        return jsonify({"ok": True, "catalog": build_data, "provenance": provenance, "errors": []})
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)], "catalog": {}}), 500
+
+
+@app.route("/api/builds/user/<hero>", methods=["PUT"])
+def api_user_builds_put(hero: str):
+    """Upsert a single archetype into the user catalog."""
+    try:
+        resolved = _user_builds_hero_or_404(hero)
+        if resolved is None:
+            return jsonify({"ok": False, "errors": [f"unknown hero: {hero}"], "catalog": {}}), 404
+        hero_slug, hero_display, user_path = resolved
+
+        body = request.get_json(silent=True) or {}
+        archetype = body.get("archetype")
+        if not isinstance(archetype, dict):
+            return jsonify({"ok": False, "errors": ["body must contain 'archetype' dict"], "catalog": {}}), 400
+
+        phase = archetype.get("phase")
+        if phase not in ("early_mid", "late"):
+            return jsonify({
+                "ok": False,
+                "errors": ["'phase' must be 'early_mid' or 'late' (early phase has a different schema)"],
+                "catalog": {},
+            }), 400
+
+        # Strip the routing key 'phase' — not a schema archetype field
+        arch_to_store = {k: v for k, v in archetype.items() if k != "phase"}
+
+        data = _load_user_file(user_path, hero_display)
+        # Ensure the phase exists
+        game_phases = data.setdefault("game_phases", {})
+        phase_obj = game_phases.setdefault(phase, {"day_range": "", "description": "", "archetypes": []})
+        archetypes_list = phase_obj.setdefault("archetypes", [])
+
+        arch_name = arch_to_store.get("name")
+        replaced = False
+        for i, existing in enumerate(archetypes_list):
+            if existing.get("name") == arch_name:
+                archetypes_list[i] = arch_to_store
+                replaced = True
+                break
+        if not replaced:
+            archetypes_list.append(arch_to_store)
+
+        ok, err = scorer.validate_builds_catalog(data)
+        if not ok:
+            return jsonify({"ok": False, "errors": [err], "catalog": {}}), 400
+
+        _atomic_write_user_builds_bytes(user_path, json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+        invalidate_catalog_cache(hero_slug)
+        return jsonify({"ok": True, "catalog": data, "errors": []})
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)], "catalog": {}}), 500
+
+
+@app.route("/api/builds/user/<hero>/<path:archetype_name>", methods=["DELETE"])
+def api_user_builds_delete(hero: str, archetype_name: str):
+    """Remove a single archetype by name from the user catalog."""
+    try:
+        resolved = _user_builds_hero_or_404(hero)
+        if resolved is None:
+            return jsonify({"ok": False, "errors": [f"unknown hero: {hero}"], "catalog": {}}), 404
+        hero_slug, hero_display, user_path = resolved
+
+        archetype_name = unquote(archetype_name)
+
+        if not user_path.exists():
+            return jsonify({"ok": False, "errors": [f"no user catalog for {hero_slug}"], "catalog": {}}), 404
+
+        data = _load_user_file(user_path, hero_display)
+        found = False
+        for phase_data in data.get("game_phases", {}).values():
+            archetypes = phase_data.get("archetypes")
+            if not isinstance(archetypes, list):
+                continue
+            for i, arch in enumerate(archetypes):
+                if arch.get("name") == archetype_name:
+                    archetypes.pop(i)
+                    found = True
+                    break
+            if found:
+                break
+
+        if not found:
+            return jsonify({"ok": False, "errors": [f"archetype '{archetype_name}' not found"], "catalog": {}}), 404
+
+        _atomic_write_user_builds_bytes(user_path, json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+        invalidate_catalog_cache(hero_slug)
+        return jsonify({"ok": True, "catalog": data, "errors": []})
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)], "catalog": {}}), 500
+
+
+@app.route("/api/builds/user/<hero>/disable", methods=["POST"])
+def api_user_builds_disable(hero: str):
+    """Set enabled=False on the user catalog (idempotent)."""
+    try:
+        resolved = _user_builds_hero_or_404(hero)
+        if resolved is None:
+            return jsonify({"ok": False, "errors": [f"unknown hero: {hero}"], "catalog": {}}), 404
+        hero_slug, hero_display, user_path = resolved
+
+        if not user_path.exists():
+            # Nothing to disable — return ok immediately
+            return jsonify({"ok": True, "enabled": False})
+
+        data = _load_user_file(user_path, hero_display)
+        data["enabled"] = False
+        _atomic_write_user_builds_bytes(user_path, json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+        invalidate_catalog_cache(hero_slug)
+        return jsonify({"ok": True, "enabled": False})
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)], "catalog": {}}), 500
+
+
+@app.route("/api/builds/user/<hero>/enable", methods=["POST"])
+def api_user_builds_enable(hero: str):
+    """Set enabled=True on the user catalog (idempotent). Creates skeleton if absent."""
+    try:
+        resolved = _user_builds_hero_or_404(hero)
+        if resolved is None:
+            return jsonify({"ok": False, "errors": [f"unknown hero: {hero}"], "catalog": {}}), 404
+        hero_slug, hero_display, user_path = resolved
+
+        data = _load_user_file(user_path, hero_display)
+        data["enabled"] = True
+        _atomic_write_user_builds_bytes(user_path, json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+        invalidate_catalog_cache(hero_slug)
+        return jsonify({"ok": True, "enabled": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)], "catalog": {}}), 500
 
 
 # ── Routes — overlay ──────────────────────────────────────────────────────────
