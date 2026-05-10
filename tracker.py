@@ -255,6 +255,30 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "refresh-builds":
         import refresh_builds
         raise SystemExit(refresh_builds.main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "catalog-coverage":
+        import json as _json
+        import argparse as _argparse
+        from card_cache import catalog_coverage_report
+
+        _cc_parser = _argparse.ArgumentParser(description="Catalog coverage report")
+        _cc_parser.add_argument("command")
+        _cc_parser.add_argument("--output", type=str, default=None,
+                                help="Write JSON to this path instead of stdout")
+        _cc_parser.add_argument("--hero", type=str, default=None,
+                                help="Filter unscored decisions by hero name")
+        _cc_args = _cc_parser.parse_args(sys.argv[1:])
+        db.init_db()
+        report = {
+            "unscored_decisions": db.unscored_decisions_report(hero=_cc_args.hero),
+            "catalog_coverage": catalog_coverage_report(),
+        }
+        output = _json.dumps(report, indent=2, default=str)
+        if _cc_args.output:
+            Path(_cc_args.output).write_text(output, encoding="utf-8")
+            print(f"Wrote {_cc_args.output}")
+        else:
+            print(output)
+        raise SystemExit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "check-updates":
         import update_checker
         raise SystemExit(update_checker.main(sys.argv[2:]))
@@ -321,6 +345,10 @@ def main():
         if setup_report.get("steps"):
             first_run.print_setup_report(setup_report)
         db.init_db()
+        _retention_days = int(settings.get("tracker.db_retention_days", 0) or 0)
+        if _retention_days >= 90:
+            summary = db.prune_old_runs(_retention_days)
+            print(f"[Retention] Deleted {summary['deleted_runs']} runs older than {_retention_days}d (decisions={summary['deleted_decisions']}, combats={summary['deleted_combats']})")
         print_startup_versions()
         
         from web.server import start_web_server, set_shutdown_callback

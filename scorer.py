@@ -69,7 +69,7 @@ VALID_TIMING_PROFILES = ("tempo", "scaling", "exodia", "neutral")
 #   exodia:  0.72 @ progress=0.0  →  1.20 @ progress=1.0
 #   neutral: 1.00 flat
 TIMING_PROFILE_CURVES = {
-    "tempo":   {"base": 1.20, "slope": -0.35},
+    "tempo":   {"base": 1.20, "slope": -0.45},   # was -0.35; P1-G steepening
     "scaling": {"base": 0.82, "slope":  0.33},
     "exodia":  {"base": 0.72, "slope":  0.48},
     "neutral": {"base": 1.00, "slope":  0.00},

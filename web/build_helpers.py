@@ -243,14 +243,24 @@ def get_phase_notes(
     else:
         phase_key = "late"
 
-    phase_data = (build_data or {}).get("game_phases", {}).get(phase_key, {})
+    phases = (build_data or {}).get("game_phases", {})
+    phase_data = phases.get(phase_key, {})
+    economy: list[str] = []
+    utility: list[str] = []
+    for pd in phases.values():
+        for item in pd.get("economy_items", []):
+            if isinstance(item, str) and item not in economy:
+                economy.append(item)
+        for item in pd.get("universal_utility_items", []):
+            if isinstance(item, str) and item not in utility:
+                utility.append(item)
     return {
         "phase": phase_key,
         "day_range": phase_data.get("day_range"),
         "description": phase_data.get("description"),
         "notes": phase_data.get("notes"),
-        "economy_items": phase_data.get("economy_items", []),
-        "universal_utility_items": phase_data.get("universal_utility_items", []),
+        "economy_items": economy,
+        "universal_utility_items": utility,
     }
 
 
@@ -486,6 +496,9 @@ def extract_skip_relevant_items(notes: str) -> list[str]:
         try:
             parsed = ast.literal_eval(match.group(1))
         except (SyntaxError, ValueError):
+            raw = match.group(1)[1:-1].strip()
+            if raw and raw not in items:
+                items.append(raw)
             continue
         if not isinstance(parsed, list):
             continue

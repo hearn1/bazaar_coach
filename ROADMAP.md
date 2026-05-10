@@ -15,20 +15,9 @@ Manual catalog curation validation has moved out of the roadmap. Future curation
 
 Items from prod-readiness verification. P0 = release-blocking, P1 = release-eroding, P2 = post-release / `live_cron` prep.
 
-17 items closed 2026-05-09 (closed in 4338965 and Alpha v0.2 Punch List Round 2).
+17 items closed 2026-05-09 (closed in 4338965 and Alpha v0.2 Punch List Round 2); round 3 + round 4 closed 10 P1 items including the overlay header redesign (run pill moved to subtitle, × corner-pinned).
 
-### P1 - Release-eroding
-
-- **Startup launch feels slow; dashboard may be doing too much run-history work.** Investigation: dashboard boot calls `/api/runs`, then loads the latest run summary/decisions/combats. `/api/runs` currently fetches the latest 30 runs and, for each row, calls `load_builds()`, `_get_pvp_record()`, PVE aggregation, committed-archetype scan, and `infer_archetype_from_decisions()` fallback. Check whether startup latency is dominated by `/api/runs` doing per-run inference/history work before the UI can show the current run. Candidate fix: return a cheap latest-run-first payload on boot, lazy-load expensive history details only when Run History is opened, and/or cache per-run archetype summaries. Relevant files: `web/static/index.html`, `web/server.py`, `web/build_helpers.py`.
-- **Add DB retention / cleanup loop for old runs.** Investigation: `db.py` has no retention job and the schema has related rows in `decisions`, `combat_results`, `api_game_states`, `api_cards`, `api_player_attrs`, and `api_messages`; foreign keys are not declared with cascade deletes. Candidate fix: add a settings-backed retention threshold, delete runs older than N days in an explicit child-table order, expose/record cleanup in `doctor` or session logs, and keep the default conservative for alpha. Relevant files: `db.py`, `settings.py`, `tracker.py`, `doctor.py`.
-- **Skipped-shop primary row should name the missed relevant item, not another offered item.** Investigation: run 59 decision sequence 136 is a skip with `offered_names=["IllusoRay","Holsters","Captain's Quarters"]` and `score_notes="Skipped after 1 reroll(s) - missed: Core for Submarine: [Captain's Quarters]"`. `format_decision_row()` currently returns `item_name="(skipped shop)"` and `skip_relevant_items=[]` because `extract_skip_relevant_items()` only parses bracketed Python literals, while scorer notes emit `[Captain's Quarters]` without quotes. Overlay fallback title paths can then choose the first offered item instead of the missed item. Expected primary row: missed `Captain's Quarters`. Relevant files: `scorer.py`, `web/build_helpers.py`, `web/review_builder.py`, `web/static/index.html`, `web/static/overlay.html`.
-- **Manual build override needs an obvious way back to Auto.** Investigation: `overlay.html` does have `clearManualArch()` and an `Auto` button inside the manual-selection grid, but that control can be hidden when the Build override section is collapsed or not visible in the current coach surface. Candidate fix: make Auto visible whenever a manual override is active, possibly in the active-build strip or as a persistent small reset action. Relevant file: `web/static/overlay.html`.
-- **Overlay header controls feel misaligned; simplify completed-run header.** Investigation: `renderHeader()` places the defeat/victory pill and `Leave Run` in `.header-actions`, while the close `X` is a separate `.header-quit` inside the same top row. This makes the upper-right/upper-left cluster feel visually uneven, especially when the completed-run pill is present. Candidate fix: move `X` to a clean top-right affordance, put `Leave Run` below or in a secondary row, and remove the defeat/victory text pill from the overlay header. Relevant file: `web/static/overlay.html`.
-- **Carry checklist progress should be `x/1` regardless of carry-list length.** Investigation: `renderItemGroup()` calculates `ownedCount / compact.length` for every role, so carry shows progress against all listed carry options. For carry slots, the decision rule should be "have any one carry"; display and progress should cap the denominator at 1 and count owned carries as 0 or 1. Relevant file: `web/static/overlay.html`.
-- **Early-to-late build timing falloff should transition earlier.** Investigation: phase detection uses day cutoffs (`day <= 4` early, `day <= 7` early_mid, else late) and `_timing_progress()` maps day 1-13 linearly; `TIMING_PROFILE_CURVES` currently keep setup/scaling/exodia reads relatively viable into midgame. User observation: setup builds need to transition earlier than the current guidance indicates. Candidate fix: tune timing curves/thresholds and tests so late payoff recommendations ramp down/up sooner, without destabilizing stored live-score semantics. Relevant file: `scorer.py`.
-- **Run tab relevant pickups should combine universal utility and economy, independent of phase.** Investigation: `renderRun()` labels the section "Economy priorities" and renders `phaseNotes.economy_items` plus `phaseNotes.universal_utility_items`; `get_phase_notes()` sources both lists from only the current phase. Candidate fix: expose a hero-wide combined "relevant pickups" list containing economy and universal utility from all phases, keep the list stable across phase changes, and update the Run tab label/copy. Relevant files: `web/build_helpers.py`, `web/overlay_state.py`, `web/static/overlay.html`.
-- **Active run with zero decisions should show Run tab, then move to Coach after first decision.** Investigation: `shouldShowIdleState()` returns true for active runs with no tracked decisions, so the overlay renders the idle page even when a run has started. `fetchState()` switches to Coach only when leaving idle. Candidate fix: distinguish "no run yet" from "active run, zero decisions"; render the Run tab/current snapshot for active zero-decision runs, set `activeTab="run"` until first decision, then switch to Coach when `decision_count` becomes positive. Relevant files: `web/overlay_state.py`, `web/static/overlay.html`.
-- **Track unscored items for catalog/tier-list cleanup.** Investigation: scorer emits unscored notes such as "Not in <hero> catalog -- no score assigned," but there is no aggregate tracker for unscored item frequency and no report comparing card cache contents to `*_builds.json` coverage. Candidate fix: add a diagnostics/report path that aggregates unscored decisions by hero/item across recent runs and cross-checks `card_cache` against each hero catalog so 10-20 runs can drive tier-list/catalog coverage down. Relevant files: `scorer.py`, `web/build_helpers.py`, `db.py`, `doctor.py`, `card_cache.py`.
+All v0.2 punch list items closed. See git history for change log.
 
 ## Open Feature Work
 
@@ -124,6 +113,31 @@ How to test:
 Candidates surfaced during the v0.2 prod-readiness design pass. These are explicitly out of scope for the initial public release. Yes items have a full description and a clear path forward; Maybe items are recorded as one-line stubs pending more demand or unblocking work. No items have been dropped.
 
 ### Yes — Active backlog
+
+### Next parallelizable session — Local Build Override Editor
+
+Goal: implement the Yes-graded Local Build Override Editor in one parallelized session. Phases below are pre-scoped so research → implement → verify can dispatch agents on disjoint file sets.
+
+#### Predefined contracts (must be agreed before parallel work)
+- **Storage layout:** writable user catalog at `app_paths.data_dir() / "user_builds" / "<hero_slug>_user.json"`, one file per hero; same `builds_schema.json` shape as bundled/refreshed catalogs (`schema_version: 1`).
+- **Resolver precedence (in `scorer._load_builds_cached`):** user_builds (writable, per-hero) → refreshed (writable) → bundled. First valid catalog wins. A user file with `"enabled": false` at the top level is skipped.
+- **API routes (under `/api/builds/user/<hero>`):** `GET` returns the merged catalog with provenance metadata; `PUT` upserts a single archetype (validates against schema, returns 400 on schema fail); `DELETE` removes one archetype by name; `POST disable` / `POST enable` flip the `enabled` flag for the hero file. Response body: `{ok: bool, catalog: {...}, errors: [...]}`.
+- **UI contract:** new "My Builds" tab in `web/static/index.html` next to "Build Data". Form fields mirror `archetypes[*]`: name, phase, core_items[], carry_items[], support_items[], condition_items[], timing_profile, notes. Save validates client-side then POSTs to `PUT /api/builds/user/<hero>`. Conflict UI shows a banner when an incoming refresh modifies an archetype the user has overridden (compare archetype names against the user file).
+
+#### Parallel implementation groups
+- **Group A — Resolver + storage:** `scorer.py` (third resolver tier, cache invalidation), `app_paths.py` (new `user_builds/` dir helper), `web/build_helpers.py` (clear `_build_catalog_for_hero` cache on user-catalog write). Write contract-only fixture tests under `tests/test_user_builds_resolver.py` that exercise precedence with synthetic files. Owns no UI files.
+- **Group B — API CRUD:** `web/server.py` (new `/api/builds/user/<hero>` routes; reuse existing `validate_builds_catalog` for schema). Tests in `tests/test_user_builds_api.py` mirror existing `test_server_round2.py` Flask-test-client style. Owns no scorer or UI files.
+- **Group C — Dashboard UI:** `web/static/index.html` (new "My Builds" tab + form + conflict banner). Tests are grep-style assertions in `tests/test_dashboard_my_builds.py`. Owns no Python files except its test.
+
+File conflict map: A and B both touch nothing in C; A touches `build_helpers.py` for the cache hook only — B does not touch that file. Three-way parallel is safe.
+
+#### Verify phase
+One Sonnet verifier per group, dispatched after all three implementations are done (same protocol as round 3). Verifier 1 exercises a write-load-score round-trip via the resolver. Verifier 2 hits the API endpoints with the test client. Verifier 3 reads the dashboard HTML for the My Builds tab + handler wiring.
+
+#### Status
+Open. Researched in round-2 design pass; not yet started.
+
+---
 
 **Local Build Override Editor**
 

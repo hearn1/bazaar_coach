@@ -92,11 +92,11 @@
 
     .header-actions {
       display: flex;
-      flex-direction: column;
-      align-items: flex-end;
+      flex-direction: row;
+      align-items: center;
       gap: 8px;
       flex-shrink: 0;
-      margin-right: 26px;
+      margin-right: 36px;
     }
 
     .eyebrow {
@@ -118,11 +118,15 @@
       margin-top: 6px;
       color: var(--muted);
       font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .run-pill {
       flex-shrink: 0;
-      padding: 7px 10px;
+      padding: 5px 8px;
       border-radius: 999px;
       font: 600 10px/1 var(--mono);
       letter-spacing: 0.12em;
@@ -171,8 +175,9 @@
 
     .header-quit {
       position: absolute;
-      top: 10px;
-      right: 12px;
+      top: 8px;
+      right: 8px;
+      z-index: 2;
       padding: 4px 7px;
       border-radius: 999px;
       border: 1px solid rgba(240, 68, 68, 0.2);
@@ -1496,6 +1501,7 @@
     let contentScrollTop = 0;
     let lastStateSignature = "";
     let activeTab = "coach";
+    let userPickedTab = false;
     let isCollapsed = localStorage.getItem(COLLAPSED_KEY) === "true";
     let coachSectionCollapsed = loadCoachSectionCollapsed();
     let resizeSession = null;
@@ -1674,6 +1680,7 @@
 
     function setActiveTab(tab) {
       activeTab = tab;
+      userPickedTab = true;
       contentScrollTop = 0;
       render();
     }
@@ -1751,11 +1758,16 @@
       return heroName ? `${heroName} fundamentals` : "Hero fundamentals";
     }
 
+    function isActiveZeroDecision(state) {
+      return Boolean(state?.is_active) && Number(state?.decision_count || 0) === 0;
+    }
+
     function shouldShowIdleState(state) {
       if (!state) return false;
       if (isCompletedRun(state)) {
         return Number(state.run_id || 0) === Number(localStorage.getItem(DISMISSED_RUN_KEY) || 0);
       }
+      if (state.is_active) return false;
       return !hasTrackedDecisions(state);
     }
 
@@ -2102,9 +2114,12 @@
 
     function renderHeader(state) {
       const idle = shouldShowIdleState(state);
+      const activeZero = isActiveZeroDecision(state);
       const subtitle = idle
         ? `Waiting for first tracked decision | ${escapeHtml(fmtMaybe(state.hero, "Unknown hero"))}`
-        : `Run #${escapeHtml(fmtMaybe(state.run_id))} | ${escapeHtml(fmtMaybe(state.hero, "Unknown hero"))}`;
+        : activeZero
+          ? `Waiting for first decision · ${escapeHtml(fmtMaybe(state.hero, "Unknown hero"))}`
+          : `Run #${escapeHtml(fmtMaybe(state.run_id))} | ${escapeHtml(fmtMaybe(state.hero, "Unknown hero"))}`;
       const runPill = getRunPillMeta(state, idle);
       const canLeaveCompletedRun = isCompletedRun(state) && !idle;
       return `
@@ -2113,12 +2128,12 @@
             <div>
               <span class="eyebrow">Live Coach</span>
               <h1 class="title">Bazaar Tracker</h1>
-              <div class="subtitle">${subtitle}</div>
+              <div class="subtitle">
+                <span>${subtitle}</span>
+                <div class="run-pill ${escapeHtml(runPill.tone)}">${escapeHtml(runPill.label)}</div>
+              </div>
             </div>
-            <div class="header-actions">
-              <div class="run-pill ${escapeHtml(runPill.tone)}">${escapeHtml(runPill.label)}</div>
-              ${canLeaveCompletedRun ? `<button class="header-action" type="button" data-dismiss-run="true">Leave Run</button>` : ""}
-            </div>
+            ${canLeaveCompletedRun ? `<div class="header-actions"><button class="header-action" type="button" data-dismiss-run="true">Leave Run</button></div>` : ""}
             <button class="header-quit" type="button" title="Close tracker" onclick="window.pywebview.api.request_shutdown()">×</button>
           </div>
         </div>
@@ -2180,7 +2195,10 @@
               <h2 class="hero-name">${escapeHtml(activeName)}</h2>
               <div class="hero-meta">${escapeHtml(coach.activeArch?.notes || "Waiting for a stronger signal before locking a direction.")}</div>
             </div>
-            <div class="badge">${escapeHtml(mode)}</div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+              <div class="badge">${escapeHtml(mode)}</div>
+              ${coach.isManual ? `<button class="header-action" type="button" data-clear-manual="true">× Auto</button>` : ""}
+            </div>
           </div>
           <div class="confidence">
             <div class="confidence-bar">
@@ -2251,7 +2269,9 @@
       const itemImages = buildCatalog.itemImages || {};
       const compact = compactItems(items);
       const ownedCount = compact.filter((item) => ownedNames.includes(item)).length;
-      const pct = compact.length ? Math.round((ownedCount / compact.length) * 100) : 0;
+      const effectiveOwned = tone === "carry" ? Math.min(ownedCount, 1) : ownedCount;
+      const effectiveTotal = tone === "carry" ? 1 : compact.length;
+      const pct = effectiveTotal ? Math.round((effectiveOwned / effectiveTotal) * 100) : 0;
       const collapseKey = getCoachSectionKey(`checklist-${tone}`, activeArchName);
       const defaultCollapsed = compact.length > 5 && tone !== "core" && ownedCount === 0;
       const collapsed = forceExpand ? false : isCoachSectionCollapsed(collapseKey, defaultCollapsed);
@@ -2280,7 +2300,7 @@
                   <span class="slot-dot"></span>
                   <span class="list-label">${escapeHtml(title)}</span>
                 </div>
-                <span class="slot-count">${escapeHtml(`${ownedCount}/${compact.length}`)}</span>
+                <span class="slot-count">${escapeHtml(`${effectiveOwned}/${effectiveTotal}`)}</span>
                 <span class="slot-blurb">${escapeHtml(blurbMap[tone] || "")}</span>
                 ${(!forceExpand && compact.length > 3) ? renderCollapseButton(collapseKey, collapsed, `${title} items`) : ""}
               </div>
@@ -2341,6 +2361,7 @@
               </div>
             </div>
             <div class="build-hero-badge ${isManual ? "manual" : "auto"}">${isManual ? "Manual" : "Auto"}</div>
+            ${isManual ? `<button class="header-action" type="button" data-clear-manual="true">× Auto</button>` : ""}
           </div>
         </div>
       `;
@@ -2656,7 +2677,7 @@
         </section>
 
         <section class="section">
-          <div class="section-kicker">Economy priorities</div>
+          <div class="section-kicker">Relevant pickups</div>
           <h3 class="section-title">Relevant pickups</h3>
           ${renderChipList(phaseNotes.economy_items, "econ", "No dedicated economy items for this phase.")}
           <div style="height:10px;"></div>
@@ -3018,6 +3039,13 @@
         return;
       }
 
+      const clearManualButton = event.target.closest("[data-clear-manual='true']");
+      if (clearManualButton && root.contains(clearManualButton)) {
+        event.preventDefault();
+        clearManualArch();
+        return;
+      }
+
       const dismissRun = event.target.closest("[data-dismiss-run='true']");
       if (dismissRun && root.contains(dismissRun)) {
         event.preventDefault();
@@ -3140,6 +3168,8 @@
         const hadError = Boolean(overlayError);
         const previousWasIdle = shouldShowIdleState(overlayState);
         const nextIsIdle = shouldShowIdleState(nextState);
+        const prevWasZero = isActiveZeroDecision(overlayState);
+        const nextIsZero = isActiveZeroDecision(nextState);
         const previousWasLiveRun = Boolean(
           overlayState &&
           overlayState.is_active !== false &&
@@ -3153,10 +3183,21 @@
         overlayError = "";
         if (previousWasIdle && !nextIsIdle) {
           activeTab = "coach";
+          userPickedTab = false;
+          contentScrollTop = 0;
+        }
+        if (prevWasZero && !nextIsZero) {
+          activeTab = "coach";
+          userPickedTab = false;
+          contentScrollTop = 0;
+        }
+        if (!prevWasZero && nextIsZero && !userPickedTab) {
+          activeTab = "run";
           contentScrollTop = 0;
         }
         if (previousWasLiveRun && nextIsCompletedRun) {
           activeTab = "review";
+          userPickedTab = false;
           contentScrollTop = 0;
         }
         if (!hadError && nextSignature === lastStateSignature) {
