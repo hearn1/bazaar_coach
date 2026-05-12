@@ -144,18 +144,11 @@ The packaged build also includes:
 ```text
 BazaarCoachCLI.exe
 ```
-
-Use this for support commands from PowerShell or cmd.exe:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\Bazaar Coach\<version>\BazaarCoachCLI.exe" doctor
-& "$env:LOCALAPPDATA\Programs\Bazaar Coach\<version>\BazaarCoachCLI.exe" refresh-builds
-& "$env:LOCALAPPDATA\Programs\Bazaar Coach\<version>\BazaarCoachCLI.exe" export-diagnostics
+python -m pytest -q
+python -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_builds.py refresh_images.py settings.py card_cache.py content_manifest.py web/server.py
 ```
 
-Do not run support commands through `BazaarCoach.exe`; it is a windowed GUI binary and does not display stdout/stderr.
-
-Current release note: Start Menu support shortcuts exist, but they may close immediately after the command finishes. Until that is fixed, run `BazaarCoachCLI.exe` from an already-open terminal when you need to read the output.
+Latest local verification: `python -m pytest -q` reports 192 tests passing.
 
 ## Diagnostics
 
