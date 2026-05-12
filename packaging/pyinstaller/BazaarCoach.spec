@@ -82,8 +82,30 @@ exe = EXE(
     entitlements_file=None,
 )
 
+# Console-mode binary for support commands (doctor, refresh-builds,
+# export-diagnostics). Same codebase, same Analysis — only console=True
+# so output is visible when run from a terminal or Start Menu shortcut.
+exe_cli = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="BazaarCoachCLI",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
 coll = COLLECT(
     exe,
+    exe_cli,
     a.binaries,
     a.zipfiles,
     a.datas,
