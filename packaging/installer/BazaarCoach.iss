@@ -47,7 +47,7 @@ Name: "{group}\Uninstall Bazaar Coach"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\BazaarCoach.exe"; Parameters: "doctor"; Description: "Run Bazaar Coach Doctor"; Flags: postinstall skipifsilent nowait
+Filename: "{app}\BazaarCoachCLI.exe"; Parameters: "doctor"; Description: "Run Bazaar Coach Doctor"; Flags: postinstall skipifsilent
 
 [Code]
 var
@@ -65,11 +65,21 @@ begin
     ) = IDYES;
 end;
 
-function ShouldRemoveUserData(): Boolean;
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  AppDataPath: string;
+  LocalDataPath: string;
 begin
-  Result := RemoveUserData;
+  if CurUninstallStep = usPostUninstall then
+  begin
+    if RemoveUserData then
+    begin
+      AppDataPath := ExpandConstant('{userappdata}\BazaarCoach');
+      LocalDataPath := ExpandConstant('{localappdata}\BazaarCoach');
+      if DirExists(AppDataPath) then
+        DelTree(AppDataPath, True, True, True);
+      if DirExists(LocalDataPath) then
+        DelTree(LocalDataPath, True, True, True);
+    end;
+  end;
 end;
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{userappdata}\BazaarCoach"; Check: ShouldRemoveUserData
-Type: filesandordirs; Name: "{localappdata}\BazaarCoach"; Check: ShouldRemoveUserData

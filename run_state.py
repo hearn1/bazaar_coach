@@ -72,6 +72,10 @@ class RunState:
         # immediately after insert so the overlay always reads stored scores.
         self._live_scorer: Optional[_scorer.LiveScorer] = None
 
+        # Decisions written with unresolved offered names, for retroactive retry.
+        # Each entry is (decision_id, [instance_ids]).  Capped at 10.
+        self._pending_unresolved_decisions: list[tuple[int, list[str]]] = []
+
     # ── Public entry point ────────────────────────────────────────────────────
 
     def process(self, event: dict):
@@ -506,6 +510,33 @@ class RunState:
         }
         return mono_state in compatible.get(log_state, set())
 
+    def _register_unresolved(self, decision_id: int, instance_ids: list[str], offered_names: list[str]):
+        """Track a decision whose offered names were only partially resolved."""
+        from name_resolver import is_unresolved
+        if decision_id is None or not instance_ids:
+            return
+        if any(is_unresolved(name) for name in offered_names):
+            self._pending_unresolved_decisions.append((decision_id, list(instance_ids)))
+            self._pending_unresolved_decisions = self._pending_unresolved_decisions[-10:]
+
+    def _flush_unresolved(self):
+        """Retry resolving offered names for past decisions; update DB on improvement."""
+        from name_resolver import is_unresolved
+        if not self._pending_unresolved_decisions:
+            return
+        still_pending = []
+        for decision_id, instance_ids in self._pending_unresolved_decisions:
+            resolved = self.resolver.bulk_resolve(instance_ids)
+            names = [resolved.get(iid, iid) for iid in instance_ids]
+            if any(not is_unresolved(name) for name in names):
+                db.update_decision_offered_names(decision_id, names)
+                remaining = [(iid, name) for iid, name in zip(instance_ids, names) if is_unresolved(name)]
+                if remaining:
+                    still_pending.append((decision_id, [iid for iid, _ in remaining]))
+            else:
+                still_pending.append((decision_id, instance_ids))
+        self._pending_unresolved_decisions = still_pending
+
     def _build_live_decision_context(self, game_state: str, offered: list[str]) -> dict:
         """Attach the freshest compatible Mono snapshot to a Player.log decision.
 
@@ -513,6 +544,7 @@ class RunState:
         decisions still insert and LiveScorer falls back to its existing
         heuristics.
         """
+        self._flush_unresolved()
         context = {
             "offered_names": None,
             "offered_templates": None,
@@ -651,6 +683,7 @@ class RunState:
                 "score_notes": score_notes_payload,
                 **self._score_context_fields(live_context),
             })
+            self._register_unresolved(decision_id, offered, live_context.get("offered_names") or [])
             reroll_str = f" (rerolled {self._shop.reroll_count}x)" if self._shop.reroll_count else ""
             print(f"[Decision #{self.decision_seq}] ⏭  SKIP{reroll_str} | Passed on: {self._format_name_list(names)}")
         self.pending_offered.clear()
@@ -1053,6 +1086,7 @@ class RunState:
                 "score_notes": None,
                 **self._score_context_fields(live_context),
             })
+            self._register_unresolved(decision_id, offered, live_context.get("offered_names") or [])
             name = card_cache.resolve_template_id(template_id) or instance_id
             tag = "🎁" if dtype == "free_reward" else "🛒"
             reroll_str = f" [r{self._shop.reroll_count}]" if self._shop.reroll_count else ""

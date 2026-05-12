@@ -89,8 +89,11 @@ def _writer_loop():
             if _shared_conn is not None:
                 try:
                     _shared_conn.commit()
+                    _shared_conn.close()
                 except Exception as e:
-                    print(f"[DB] Final commit on writer shutdown failed: {e}")
+                    print(f"[DB] Final commit/close on writer shutdown failed: {e}")
+                finally:
+                    _shared_conn = None
             _write_queue.task_done()
             return
 
@@ -195,17 +198,24 @@ def flush_if_stale(max_age_secs: float = 2.0):
 
 
 def close_shared_conn():
-    """Stop the writer and close the shared connection (call on shutdown)."""
+    """Stop the writer and close the shared connection (call on shutdown).
+
+    stop_writer() joins the writer thread, which closes _shared_conn on its
+    own thread before exiting.  Any remaining reference is a no-op guard.
+    """
     global _shared_conn
 
     stop_writer()
 
+    # Writer thread already closed and cleared _shared_conn; this is a safety
+    # guard for the case where start_writer() was never called (e.g. tests
+    # that call get_shared_conn() directly without a writer thread).
     if _shared_conn is not None:
         try:
             _shared_conn.commit()
             _shared_conn.close()
         except Exception as e:
-            print(f"[DB] close_shared_conn failed: {e}")
+            print(f"[DB] close_shared_conn fallback close failed: {e}")
         _shared_conn = None
 
 
@@ -580,6 +590,23 @@ def _update_decision_score_impl(decision_id: int, label: Optional[str], notes: O
     conn.execute(
         "UPDATE decisions SET score_label = ?, score_notes = ? WHERE id = ?",
         (label, notes or "", decision_id),
+    )
+
+
+def update_decision_offered_names(decision_id: int, offered_names: list):
+    """Retroactively write resolved offered_names for a decision.
+
+    Called when Mono templates arrive after the decision was already recorded
+    with unresolved instance IDs.  Fire-and-forget.
+    """
+    _enqueue_fire_and_forget(_update_decision_offered_names_impl, decision_id, offered_names)
+
+
+def _update_decision_offered_names_impl(decision_id: int, offered_names: list):
+    conn = get_shared_conn()
+    conn.execute(
+        "UPDATE decisions SET offered_names = ? WHERE id = ?",
+        (json.dumps(offered_names), decision_id),
     )
 
 

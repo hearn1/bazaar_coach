@@ -83,6 +83,47 @@ def test_pyinstaller_spec_is_windowed_after_null_stream_coverage():
     assert "console=False" in spec
 
 
+def test_pyinstaller_spec_includes_cli_binary():
+    root = app_paths.repo_dir()
+    spec = (root / "packaging" / "pyinstaller" / "BazaarCoach.spec").read_text()
+
+    assert "BazaarCoachCLI" in spec
+    assert "console=True" in spec
+
+
+def test_capture_mono_db_path_uses_app_paths():
+    root = app_paths.repo_dir()
+    source = (root / "capture_mono.py").read_text(encoding="utf-8")
+
+    assert "app_paths.db_path()" in source
+    assert 'Path(__file__).parent / "bazaar_runs.db"' not in source
+
+
+def test_capture_mono_subprocesses_use_no_window_flag():
+    root = app_paths.repo_dir()
+    source = (root / "capture_mono.py").read_text(encoding="utf-8")
+
+    assert "CREATE_NO_WINDOW" in source
+
+
+def test_installer_uninstall_uses_deltree_not_uninstalldelete():
+    root = app_paths.repo_dir()
+    iss = (root / "packaging" / "installer" / "BazaarCoach.iss").read_text()
+
+    assert "DelTree" in iss
+    assert "CurUninstallStepChanged" in iss
+    assert "[UninstallDelete]" not in iss
+
+
+def test_installer_has_cli_shortcuts():
+    root = app_paths.repo_dir()
+    iss = (root / "packaging" / "installer" / "BazaarCoach.iss").read_text()
+
+    assert "BazaarCoachCLI.exe" in iss
+    assert "refresh-builds" in iss
+    assert "export-diagnostics" in iss
+
+
 def test_build_portable_selects_python_flexibly():
     script = (app_paths.repo_dir() / "packaging" / "pyinstaller" / "build_portable.ps1").read_text()
 

@@ -118,8 +118,7 @@ def launch_capture_mono(process_name: str = "TheBazaar.exe") -> subprocess.Popen
             "--process",
             process_name,
         ]
-    proc = subprocess.Popen(
-        cmd,
+    popen_kwargs = dict(
         cwd=str(REPO_DIR),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -129,6 +128,9 @@ def launch_capture_mono(process_name: str = "TheBazaar.exe") -> subprocess.Popen
         bufsize=1,
         env=env,
     )
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    proc = subprocess.Popen(cmd, **popen_kwargs)
     threading.Thread(
         target=_pump_process_output,
         args=(proc,),

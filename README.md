@@ -1,91 +1,148 @@
 # Bazaar Coach
 
-Captures every decision you make in The Bazaar into a local SQLite database,
-structured for future scoring and AI-assisted analysis.
+Bazaar Coach is a Windows coaching plugin for *The Bazaar*. It captures your run decisions into a local SQLite database, scores them against build guides, and shows live coaching through an overlay.
 
-## What It Captures
+## What it captures
 
-- Every card/item offered vs. what you picked
-- Every skill offered vs. what you picked
-- Board state after each decision (player + opponent)
-- Item repositioning (move events)
-- Combat outcomes (who died, duration)
-- Full run metadata (hero, session ID, timestamps)
+- Card/item offers and picks
+- Skill offers and picks
+- Board state after decisions
+- Combat outcomes
+- Run metadata such as hero, session, timestamps, and outcome
+- Live game context such as day, gold, health, and phase when Mono capture is available
 
 ## Requirements
 
+For development:
+
 - Python 3.10+
-- `pip install -r requirements.txt`
-- Optional packaging build requirements: `pip install -r packaging/pyinstaller/requirements-build.txt`
+- Runtime dependencies from `requirements.txt`
 
-## Setup
+For packaging:
 
-**1. Install dependencies:**
-```
+- PyInstaller build dependencies from `packaging/pyinstaller/requirements-build.txt`
+- Inno Setup 6 for the Windows installer
+
+## Data and settings locations
+
+Installed app:
+
+| Location | Contents |
+| --- | --- |
+| `%LOCALAPPDATA%\BazaarCoach\` | Database, logs, static cache, refreshed build catalogs |
+| `%APPDATA%\BazaarCoach\` | `settings.json` |
+
+Development runs keep mutable data in the repo root.
+
+## Development setup
+
+Install dependencies:
+
+```powershell
 pip install -r requirements.txt
 ```
 
-**2. Run setup/status checks:**
-```
+Run setup/status checks:
+
+```powershell
 python coach.py setup-status
 python coach.py setup --refresh-content never
 ```
-Normal app startup does not block on CDN content refresh. It initializes local paths/settings/DB and reports missing static content as a warning.
 
-**3. Refresh static content when online** (run after major Bazaar patches):
-```
+Normal startup does not block on CDN content refresh. It initializes local paths, settings, and the database, and reports missing static content as a warning.
+
+Refresh static content when online, especially after major Bazaar patches:
+
+```powershell
 python coach.py refresh-content
 ```
-This hits `data.playthebazaar.com/static`, keeps the previous local cache active if refresh fails, and records endpoint/card diffs in the content manifest.
 
-**4. Refresh card images when needed:**
-```
-python coach.py refresh-images
-python coach.py refresh-images --coverage-only
-```
-Per-card image extraction remains partial/legacy work. The current roadmap direction is one representative image per build archetype, while still waiting for BazaarDB guidance on optional local user-side image caching.
+This fetches `data.playthebazaar.com/static`, keeps the previous local cache active if refresh fails, and records endpoint/card diffs in the content manifest.
 
-**5. Refresh build catalogs when updates are available:**
-```
-venv312\Scripts\python.exe coach.py refresh-builds
-```
-This pulls the latest curator-approved build catalogs from GitHub into your install, no reinstall needed.
+Refresh build catalogs when updates are available:
 
-Players can also open **Build Data** in the dashboard and click **Refresh Builds**. Normal app startup starts the same refresh logic in the background without blocking play or depending on GitHub availability. The Build Data panel shows refreshed/unchanged/failed status plus the build-data notes bundled with each catalog.
-
-Expected success output looks like:
+```powershell
+python coach.py refresh-builds
 ```
+
+This pulls the latest curator-approved catalogs into the writable data directory. If refresh fails, the bundled catalogs continue to work.
+
+Expected success output:
+
+```text
 refresh-builds: 5 updated, 0 unchanged, 0 skipped (errors)
 ```
 
-If the refresh fails, the catalogs that shipped with your installer keep working. That includes cases where GitHub is unreachable, one hero's file does not pass validation, or a refreshed catalog turns out to be malformed later. The app falls back to the installer version, so you lose nothing by trying.
+## Running in development
 
-`refresh-builds` is optional. The installer ships with a complete catalog set, and players who never run it still get full scoring and coaching.
+Start the full workflow:
 
-**6. Parse a completed run** (the log file from a previous session):
-```
-python watcher.py --parse-only
-```
-
-**7. Watch in real time** while playing (start before or during a run):
-```
-python watcher.py
+```powershell
+venv312\Scripts\python.exe coach.py
 ```
 
-**8. Run the full one-command workflow** (watch log + launch Mono capture + live scoring):
+Useful options:
+
+```powershell
+venv312\Scripts\python.exe coach.py --no-mono       # skip Frida/Mono subprocess
+venv312\Scripts\python.exe coach.py --no-overlay    # headless watcher + Flask only
+venv312\Scripts\python.exe coach.py --log "PATH"    # override Player.log autodetect
 ```
-<pathToCoach>\venv312\Scripts\python coach.py
+
+The dashboard is served at:
+
+```text
+http://127.0.0.1:5555
 ```
-This replaces the old three-terminal workflow of `watcher.py`, `capture_mono.py --db`, and manual bridge runs.
-Each run also writes a UTF-8 session log to `logs/coach_YYYYMMDD_HHMMSS.log`, which is the easiest file to share for debugging.
 
-The current supported workflow lives in `coach.py`, `watcher.py`, and the modules they invoke.
-Legacy transport-capture experiments have been removed from the project root so the active pipeline is easier to navigate.
+Each session writes a support log to:
 
-## Tests
+```text
+logs\coach_YYYYMMDD_HHMMSS.log
+```
 
-Tests live in `tests/` and are configured through `pytest.ini`.
+## Player.log location
 
+Bazaar Coach auto-detects:
+
+```text
+C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log
+```
+
+Use `--log "..."` only if your Bazaar log is somewhere else.
+
+## Installed app workflow
+
+The installer creates a Start Menu folder named **Bazaar Coach**.
+
+Use:
+
+```text
+Start Menu → Bazaar Coach → Bazaar Coach
+```
+
+Normal app behavior:
+
+1. Launch Bazaar Coach.
+2. Launch *The Bazaar*.
+3. The overlay/dashboard starts and waits quietly if the game is not running yet.
+4. Play normally.
+5. Session logs are written to `%LOCALAPPDATA%\BazaarCoach\logs\`.
+
+The main installed binary is windowed:
+
+```text
+BazaarCoach.exe
+```
+
+It is for normal gameplay and does not show console output.
+
+## Support commands
+
+The packaged build also includes:
+
+```text
+BazaarCoachCLI.exe
 ```
 python -m pytest -q
 python -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_builds.py refresh_images.py settings.py card_cache.py content_manifest.py web/server.py
@@ -95,60 +152,100 @@ Latest local verification: `python -m pytest -q` reports 192 tests passing.
 
 ## Diagnostics
 
-```
+Development:
+
+```powershell
 python coach.py doctor
 python coach.py export-diagnostics
 ```
 
-`doctor` intentionally initializes/verifies the DB schema before reporting DB-dependent summaries, so a clean profile should not report contradictory DB state.
+Installed app:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Bazaar Coach\<version>\BazaarCoachCLI.exe" doctor
+& "$env:LOCALAPPDATA\Programs\Bazaar Coach\<version>\BazaarCoachCLI.exe" export-diagnostics
+```
+
+The most useful file to share for support is usually the latest session log:
+
+```text
+%LOCALAPPDATA%\BazaarCoach\logs\coach_YYYYMMDD_HHMMSS.log
+```
 
 ## Packaging
 
-Portable builds use PyInstaller and installer builds use Inno Setup 6.
+Portable build:
 
-```
+```powershell
 pip install -r packaging/pyinstaller/requirements-build.txt
 powershell -ExecutionPolicy Bypass -File packaging\pyinstaller\build_portable.ps1
+```
+
+Optional explicit Python path:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File packaging\pyinstaller\build_portable.ps1 -PythonExe C:\Path\To\python.exe
+```
+
+Installer build:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File packaging\installer\build_installer.ps1
 ```
 
-`build_portable.ps1` accepts `-PythonExe` for fresh clones or custom virtual environments. If omitted, it uses `.\venv312\Scripts\python.exe` when present, otherwise it falls back to the active `python` on PATH and prints the selected interpreter.
+If Inno Setup is installed but `ISCC.exe` is not on PATH:
 
-The Inno Setup installer is built from the PyInstaller onedir output in `dist\BazaarCoach`. It installs app files to a versioned install directory, creates Start Menu shortcuts, offers an optional desktop shortcut, and includes a Start Menu doctor shortcut. Uninstall removes installed app files by default and prompts before deleting `%APPDATA%\BazaarCoach` and `%LOCALAPPDATA%\BazaarCoach`.
-
-## GitHub Prep
-
-First-commit repository hygiene is in place. The root `.gitignore` keeps local runtime/build/private artifacts out of Git, including `venv312/`, `.venv/`, `build/`, `dist/`, `.pytest_cache/`, `__pycache__/`, `logs/`, `static_cache/`, `bazaar_runs.db*`, `settings.json`, `sqlite3.Connection`, diagnostics zips, PyInstaller outputs, and editor/OS noise. Source files, tests, docs, packaging scripts, requirements files, build catalogs, and roadmap files remain trackable.
-
-## Updates and Distribution
-
-The app does not require a dedicated hosted website. Update checks are disabled by default and should be configured for GitHub Releases through settings when a repo exists. The dashboard update check must remain non-blocking and should never call placeholder URLs.
-
-## Log File Location
-
-The app auto-detects the log at:
-```
-C:\Users\<YourUsername>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\installer\build_installer.ps1 `
+  -InnoSetupCompiler "C:\Path\To\ISCC.exe"
 ```
 
-Or specify manually:
+The PyInstaller output contains two binaries:
+
+| Binary | Purpose |
+| --- | --- |
+| `BazaarCoach.exe` | Windowed gameplay app |
+| `BazaarCoachCLI.exe` | Console support commands |
+
+## Uninstaller behavior
+
+The uninstaller prompts once:
+
+```text
+Remove all Bazaar Coach user data from %APPDATA% and %LOCALAPPDATA%?
 ```
-python watcher.py --log "C:\Users\Matt\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log"
+
+- **No** removes installed app files and keeps user data.
+- **Yes** removes installed app files and deletes both `%LOCALAPPDATA%\BazaarCoach` and `%APPDATA%\BazaarCoach`.
+
+## Tests
+
+Tests live in `tests/` and are configured through `pytest.ini`.
+
+```powershell
+venv312\Scripts\python.exe -m pytest -q
+venv312\Scripts\python.exe -B -m py_compile coach.py first_run.py update_checker.py doctor.py refresh_builds.py settings.py card_cache.py content_manifest.py web/server.py
 ```
 
-## Querying the Database
+## Querying the database
 
-The database is a standard SQLite file: `bazaar_runs.db`
+Installed app database:
 
-You can query it with any SQLite tool (DB Browser for SQLite is great), or Python:
+```text
+%LOCALAPPDATA%\BazaarCoach\bazaar_runs.db
+```
+
+Example:
 
 ```python
-import sqlite3, json
-conn = sqlite3.connect("bazaar_runs.db")
+import json
+import os
+import sqlite3
+
+db_path = os.path.expandvars(r"%LOCALAPPDATA%\BazaarCoach\bazaar_runs.db")
+conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 
-# All decisions in your last run
 run = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
 decisions = conn.execute(
     "SELECT * FROM decisions WHERE run_id=? ORDER BY decision_seq",
@@ -161,33 +258,44 @@ for d in decisions:
     print(f"  Offered {len(offered)}, rejected {len(json.loads(d['rejected']))}")
 ```
 
-## Database Schema
+## Database schema
 
 | Table | Purpose |
-|-------|---------|
-| `runs` | One row per run (hero, session, outcome) |
-| `decisions` | Every pick: offered set, chosen card, rejected cards |
-| `combat_results` | Combat outcomes with board state at fight time |
+| --- | --- |
+| `runs` | One row per run |
+| `decisions` | Picks, offers, rejected cards, and live score fields |
+| `combat_results` | Combat outcomes and board state |
 | `card_cache` | Local copy of card names/tiers from the game's CDN |
 
-The `decisions` table has live scoring columns:
-- `score_label` — 'optimal' | 'suboptimal' | 'waste'
-- `score_notes` — explanation text written at decision time
+The `decisions` table includes live scoring columns:
 
-## Roadmap
+- `score_label` — `'optimal'`, `'suboptimal'`, or `'waste'`
+- `score_notes` — decision-time explanation text
 
-See `ROADMAP.md` for current open work. Completed roadmap items are removed from that file rather than kept as checked-off entries.
+## Updates and distribution
+
+The app does not require a dedicated hosted website. Update checks are disabled by default and should be configured for GitHub Releases when a repo/release channel exists. The dashboard update check must remain non-blocking and must never call placeholder URLs.
 
 ## Architecture
 
+```text
+coach.py                   # single entrypoint
+  |- watcher.py            # tails Player.log
+  |    |- parser.py        # regex → structured events
+  |    └── run_state.py    # decisions → db.py
+  |         |- board_state.py
+  |         |- shop_session.py
+  |         └── name_resolver.py
+  |- capture_mono.py       # Frida + Mono hooks → snapshots → db.py
+  |- web/server.py         # Flask routes
+  |    |- web/overlay_state.py
+  |    |- web/review_builder.py
+  |    |- web/build_helpers.py
+  |    |- web/static/index.html
+  |    └── web/static/overlay.html
+  └── overlay.py           # PyWebView overlay
 ```
-Player.log (Unity output)
-    │
-    └─► watcher.py          # tails log file in real time
-            │
-            └─► parser.py   # regex patterns → structured event dicts
-                    │
-                    └─► run_state.py   # state machine → assembles decisions
-                                │
-                                └─► db.py   # writes to bazaar_runs.db (SQLite)
-```
+
+## Roadmap
+
+See `ROADMAP.md` for current open work. Completed items are removed rather than kept as checked-off entries.

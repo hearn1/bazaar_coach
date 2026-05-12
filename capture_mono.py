@@ -2415,8 +2415,9 @@ def _get_mono_conn():
     global _mono_db_conn
     if _mono_db_conn is None:
         import sqlite3
+        import app_paths
         _mono_db_conn = sqlite3.connect(
-            Path(__file__).parent / "bazaar_runs.db",
+            app_paths.db_path(),
             timeout=30.0,
         )
         _mono_db_conn.row_factory = sqlite3.Row
@@ -3963,9 +3964,12 @@ def list_game_processes(process_name="TheBazaar.exe"):
             "Select-Object ProcessId, CreationDate, CommandLine; "
             "if ($p) { $p | ConvertTo-Json -Compress }"
         )
+        run_kwargs = dict(capture_output=True, text=True, timeout=8)
+        if sys.platform == "win32":
+            run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", script],
-            capture_output=True, text=True, timeout=8,
+            **run_kwargs,
         )
         stdout = result.stdout.strip()
         if stdout:
@@ -3988,9 +3992,12 @@ def find_game_pid(process_name="TheBazaar.exe"):
         return processes[-1]["pid"]
 
     try:
+        run_kwargs2 = dict(capture_output=True, text=True, timeout=5)
+        if sys.platform == "win32":
+            run_kwargs2["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = subprocess.run(
             ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=5,
+            **run_kwargs2,
         )
         for line in result.stdout.strip().split("\n"):
             if process_name.replace(".exe", "") in line:
