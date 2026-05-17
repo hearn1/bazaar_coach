@@ -59,7 +59,8 @@ def _get_latest_live_snapshot(conn) -> Optional[dict]:
     row = conn.execute(
         """
         SELECT day, hour, gold, health, health_max,
-               victories, defeats, run_state, captured_at
+               victories, defeats, run_state, captured_at,
+               json_extract(full_json, '$.player.Prestige') AS prestige
         FROM api_game_states
         WHERE run_state IS NOT NULL
           AND run_state NOT IN ('EndRunDefeat', 'EndRunVictory')
@@ -87,7 +88,8 @@ def _get_run_end_snapshot(conn, run: dict) -> Optional[dict]:
     row = conn.execute(
         """
         SELECT day, hour, gold, health, health_max,
-               victories, defeats, run_state, captured_at
+               victories, defeats, run_state, captured_at,
+               json_extract(full_json, '$.player.Prestige') AS prestige
         FROM api_game_states
         WHERE id >= ?
           AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
@@ -102,7 +104,8 @@ def _get_run_end_snapshot(conn, run: dict) -> Optional[dict]:
     row = conn.execute(
         """
         SELECT day, hour, gold, health, health_max,
-               victories, defeats, run_state, captured_at
+               victories, defeats, run_state, captured_at,
+               json_extract(full_json, '$.player.Prestige') AS prestige
         FROM api_game_states
         WHERE id >= ?
           AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
@@ -214,6 +217,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
     # ── Live header stats ────────────────────────────────────────────────────
     pve_w, pve_l = _get_pve_record(conn, run["id"])
     current_day = current_hour = current_gold = current_health = current_health_max = None
+    current_prestige = None
     pvp_w = pvp_l = 0
     snapshot_source = "none"
 
@@ -225,6 +229,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
             current_gold = live_snap.get("gold")
             current_health = live_snap.get("health")
             current_health_max = live_snap.get("health_max")
+            current_prestige = live_snap.get("prestige")
             pvp_w = live_snap.get("victories") or 0
             pvp_l = live_snap.get("defeats") or 0
             snapshot_source = "live_mono"
@@ -243,6 +248,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
             current_gold = end_snap.get("gold")
             current_health = end_snap.get("health")
             current_health_max = end_snap.get("health_max")
+            current_prestige = end_snap.get("prestige")
             pvp_w = end_snap.get("victories") or 0
             pvp_l = end_snap.get("defeats") or 0
             snapshot_source = "end_run_snapshot"
@@ -280,6 +286,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
             for category, cards in inventory_projection["cards_by_category"].items()
         },
         "inventory_source": inventory_projection["source"],
+        "prestige": current_prestige,
         "pvp_wins": pvp_w,
         "pvp_losses": pvp_l,
         "pve_wins": pve_w,

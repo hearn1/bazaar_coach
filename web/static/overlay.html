@@ -193,6 +193,36 @@
       color: #ff8585;
     }
 
+    .header-stats {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      color: var(--muted);
+      font: 500 10px/1 var(--mono);
+      letter-spacing: 0.1em;
+    }
+
+    .header-stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .header-stat-label {
+      color: var(--muted-2);
+      text-transform: uppercase;
+    }
+
+    .header-stat-value {
+      color: var(--fg);
+    }
+
+    .header-stat-sep {
+      color: var(--muted-2);
+      opacity: 0.4;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2112,6 +2142,16 @@
       return alerts;
     }
 
+    function renderHeaderStats(state) {
+      const parts = [];
+      if (state.prestige != null) parts.push(`<span class="header-stat"><span class="header-stat-label">Prestige</span><span class="header-stat-value">${escapeHtml(String(state.prestige))}</span></span>`);
+      if (state.day != null)      parts.push(`<span class="header-stat"><span class="header-stat-label">Day</span><span class="header-stat-value">${escapeHtml(String(state.day))}</span></span>`);
+      if (state.hour != null)     parts.push(`<span class="header-stat"><span class="header-stat-label">Hr</span><span class="header-stat-value">${escapeHtml(String(state.hour))}</span></span>`);
+      if (state.pvp_wins != null) parts.push(`<span class="header-stat"><span class="header-stat-label">Wins</span><span class="header-stat-value">${escapeHtml(String(state.pvp_wins))}</span></span>`);
+      if (!parts.length) return "";
+      return `<div class="header-stats">${parts.join('<span class="header-stat-sep">·</span>')}</div>`;
+    }
+
     function renderHeader(state) {
       const idle = shouldShowIdleState(state);
       const activeZero = isActiveZeroDecision(state);
@@ -2132,6 +2172,7 @@
                 <span>${subtitle}</span>
                 <div class="run-pill ${escapeHtml(runPill.tone)}">${escapeHtml(runPill.label)}</div>
               </div>
+              ${renderHeaderStats(state)}
             </div>
             <div class="header-actions">
               <button class="header-action" type="button" data-open-dashboard="true" title="Open dashboard to edit your build catalog">Edit Builds</button>
