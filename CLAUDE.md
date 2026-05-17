@@ -143,6 +143,13 @@ That repo contains the enricher, probe scripts, CI schema validation, and usage 
 
 For bazaar-builds manual catalog curation, distinguish safe no-op workflow validation from evidence-bearing curation. A run without fetched post evidence can validate the command path, but catalog curation validation requires fetched post evidence, normally with `--fetch-posts`, or an explicitly evidence-backed empty result after fetch attempts. If curator-accepted deltas exist, apply and validate the catalog edit; if no accepted deltas exist, record the evidence-backed no-change decision.
 
-Automated build-refresh pipeline status lives in the bazaar-builds repo. Current coach-facing contract: bazaar-builds is in `phase: shadow_cron` with `dry_run: true`; scheduled runs default to deterministic `no_llm_shadow`; stats sidecars are persisted via rolling `automated/stats-sync-<hero>` PRs in bazaar-builds (direct push to `main` is blocked by branch protection); coach catalogs and coach PRs must not be mutated until `live_cron` is manually enabled. Do not promote to `live_cron` until there are at least 2 healthy bazaardb patch windows, at least 60 calendar days of shadow output, and semantic classifier/provider readiness or an explicit waiver.
+Automated build-refresh pipeline status lives in the bazaar-builds repo. Current coach-facing contract: bazaar-builds is in `phase: shadow_cron` with `dry_run: true`; scheduled runs default to the `deterministic` classifier; stats sidecars are persisted via rolling `automated/stats-sync-<hero>` PRs in bazaar-builds (direct push to `main` is blocked by branch protection); coach catalogs and coach PRs must not be mutated until `live_cron` is manually enabled.
+
+Do not promote to `live_cron` until all of these are true:
+- At least 2 healthy bazaardb patch windows have accumulated.
+- Deterministic/LLM classifier-produced output spans ≥7 calendar days (measured from `classifier_started_at`); otherwise ≥60 days of shadow.
+- `last_classifier_mode` is a real classifier in a hero sidecar, OR an explicit waiver file is placed (waiver does NOT shorten the day requirement).
+- No malformed shadow run in the last 14 days.
+- Curator manually flips `phase`/`dry_run` after reviewing shadow artifacts.
 
 See `ROADMAP.md` for open bugs and planned features.
