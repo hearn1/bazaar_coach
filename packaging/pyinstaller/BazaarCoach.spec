@@ -11,9 +11,11 @@ ROOT = Path(SPECPATH).parents[1]
 
 datas = [
     (str(ROOT / "dooley_builds.json"), "."),
+    (str(ROOT / "jules_builds.json"), "."),
     (str(ROOT / "karnok_builds.json"), "."),
     (str(ROOT / "mak_builds.json"), "."),
     (str(ROOT / "pygmalien_builds.json"), "."),
+    (str(ROOT / "stelle_builds.json"), "."),
     (str(ROOT / "vanessa_builds.json"), "."),
     (str(ROOT / "builds_schema.json"), "."),
     (str(ROOT / "capture_mono.py"), "."),

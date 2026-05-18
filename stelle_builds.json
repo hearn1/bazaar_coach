@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "hero": "Stelle",
+  "season": 13,
+  "last_updated": "2026-05-18",
+  "notes": "POC SEED SKELETON - empty initial catalog used to prove the automated builds pipeline can generate an initial Stelle catalog from source evidence. Not curator-authored content.",
+  "item_tier_list": {
+    "description": "Placeholder tier list for the Stelle PoC seed; populated by curator review.",
+    "S": [],
+    "A": [],
+    "B": [],
+    "C": [],
+    "D": [],
+    "F": []
+  },
+  "game_phases": {
+    "early": {
+      "day_range": "Day 1-4",
+      "description": "Placeholder early-phase description for the Stelle PoC seed.",
+      "universal_utility_items": [],
+      "economy_items": []
+    },
+    "early_mid": {
+      "day_range": "Day 4-7",
+      "description": "Placeholder early-mid description for the Stelle PoC seed.",
+      "archetypes": []
+    },
+    "late": {
+      "day_range": "Day 7-13",
+      "description": "Placeholder late-phase description for the Stelle PoC seed.",
+      "archetypes": []
+    }
+  }
+}
