@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A coaching plugin for The Bazaar (a PvP autobattler card game by Tempo Storm). It captures every decision during a run into a local SQLite database, scores them against known build guides, and shows live coaching via an in-game overlay. The project has hero-aware build catalogs for Karnok, Mak, Dooley, Vanessa, and Pygmalien. Distributed as a Windows installer; first alpha release published at https://github.com/hearn1/bazaar_coach (tag: v0.1-alpha.1).
+A coaching plugin for The Bazaar (a PvP autobattler card game by Tempo Storm). It captures every decision during a run into a local SQLite database, scores them against known build guides, and shows live coaching via an in-game overlay. The project has hero-aware build catalogs for Karnok, Mak, Dooley, Vanessa, Pygmalien, Jules, and Stelle. Distributed as a Windows installer; first alpha release published at https://github.com/hearn1/bazaar_coach (tag: v0.1-alpha.1).
 
 ## Common commands
 
@@ -104,7 +104,7 @@ Manual diagnostics:
 
 **Core Pipeline**: Log parsing, decision recording, state machine, combat tracking, card cache (playthebazaar.com static data), live Mono context attachment, phase-aware scoring with archetype detection, skip analysis, rejected-set tracking, PvP record from terminal Mono snapshot.
 
-**Multi-hero support**: Build loading is hero-aware end-to-end for Karnok, Mak, Dooley, Vanessa, and Pygmalien. The shared scorer/server/overlay paths resolve the active run hero's catalog, preferring the writable copy created by `refresh-builds` and falling back to the bundled copy for offline play or incompatible refreshes. To add a new hero, use the fetch + compare workflow in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo to populate initial archetypes, then hand-edit the new `<hero>_builds.json` here.
+**Multi-hero support**: Build loading is hero-aware end-to-end for Karnok, Mak, Dooley, Vanessa, Pygmalien, Jules, and Stelle. The shared scorer/server/overlay paths resolve the active run hero's catalog, preferring the writable copy created by `refresh-builds` and falling back to the bundled copy for offline play or incompatible refreshes. To add a new hero, use the fetch + compare workflow in the [bazaar-builds](https://github.com/hearn1/bazaar-builds) repo to populate initial archetypes, then hand-edit the new `<hero>_builds.json` here.
 
 **Mono Capture**: Frida hooks on HandleMessage for GameSim/CombatSim/GameStateSync/RunInitialized. Optimized to 39ms median hook latency via direct memory reads replacing all NativeFunction calls. Key optimizations: `readGameSimFast` single-pass reader, `_fastReadPlayerAttrs` with cached dict layout, `_directReadMonoString` (UTF-16 direct read), content-hash SelectionSet cache, vtable->klass double-deref, hint-trusting in getSnapshotMatches. Gated behind `FAST_GAMESIM_PATH = true` flag.
 

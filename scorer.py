@@ -38,9 +38,11 @@ BUILDS_SCHEMA_MAX = 1
 
 CATALOG_FILENAMES = {
     "dooley": "dooley_builds.json",
+    "jules": "jules_builds.json",
     "karnok": "karnok_builds.json",
     "mak": "mak_builds.json",
     "pygmalien": "pygmalien_builds.json",
+    "stelle": "stelle_builds.json",
     "vanessa": "vanessa_builds.json",
 }
 
