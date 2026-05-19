@@ -25,7 +25,29 @@ from web.review_builder import build_overlay_review_rows, summarize_overlay_revi
 
 # ── DB helpers (kept local to avoid circular imports with server.py) ──────────
 
-def _get_pve_record(conn, run_id: int) -> tuple[int, int]:
+_PVE_WIN_STATES = {"Loot", "LevelUp", "EndRunVictory"}
+_PVE_LOSS_STATES = {"Choice", "Encounter", "Pedestal", "EndRunDefeat"}
+
+
+def _has_column(conn, table: str, column: str) -> bool:
+    try:
+        return any(row["name"] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+    except Exception:
+        return False
+
+
+def _prestige_select_expr(conn) -> str:
+    if _has_column(conn, "api_game_states", "full_json"):
+        return "json_extract(full_json, '$.player.Prestige') AS prestige"
+    return "NULL AS prestige"
+
+
+def _get_pve_record(conn, run_id: int, run: Optional[dict] = None) -> tuple[int, int]:
+    if run is not None:
+        mono = _get_mono_record(conn, run)
+        if mono and mono["has_pve_signal"]:
+            return mono["pve_wins"], mono["pve_losses"]
+
     pve = conn.execute("""
         SELECT
             SUM(CASE WHEN outcome='opponent_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) as w,
@@ -38,6 +60,10 @@ def _get_pve_record(conn, run_id: int) -> tuple[int, int]:
 
 
 def _get_pvp_record(conn, run_id: int, run: dict) -> tuple[int, int]:
+    mono = _get_mono_record(conn, run)
+    if mono and mono["has_pvp_total"]:
+        return mono["pvp_wins"], mono["pvp_losses"]
+
     pvp_w, pvp_l = 0, 0
     combats = conn.execute(
         "SELECT outcome, combat_type FROM combat_results WHERE run_id=?", (run_id,)
@@ -54,13 +80,173 @@ def _get_pvp_record(conn, run_id: int, run: dict) -> tuple[int, int]:
     return pvp_w, pvp_l
 
 
-def _get_latest_live_snapshot(conn) -> Optional[dict]:
-    """Return the most recent in-progress Mono snapshot row."""
+def _get_run_record(conn, run: dict) -> dict:
+    """Return PvP/PvE counters, preferring run-anchored Mono snapshots."""
+    mono = _get_mono_record(conn, run)
+    combat = _get_combat_result_record(conn, run["id"])
+    if mono and mono["has_pve_signal"]:
+        pve_w, pve_l = mono["pve_wins"], mono["pve_losses"]
+    else:
+        pve_w, pve_l = combat["pve_wins"], combat["pve_losses"]
+
+    if mono and mono["has_pvp_total"]:
+        pvp_w, pvp_l = mono["pvp_wins"], mono["pvp_losses"]
+    else:
+        pvp_w, pvp_l = combat["pvp_wins"], combat["pvp_losses"]
+        terminal = _get_run_end_snapshot(conn, run)
+        if terminal and terminal.get("victories") is not None:
+            pvp_w = terminal["victories"]
+            pvp_l = terminal.get("defeats") or 0
+
+    return {
+        "pvp_wins": pvp_w,
+        "pvp_losses": pvp_l,
+        "pve_wins": pve_w,
+        "pve_losses": pve_l,
+        "record_source": "mono" if mono and mono["has_combat_signal"] else "combat_results",
+    }
+
+
+def _get_combat_result_record(conn, run_id: int) -> dict:
+    row = conn.execute("""
+        SELECT
+            SUM(CASE WHEN combat_type='pvp' AND outcome='opponent_died' THEN 1 ELSE 0 END) AS pvp_w,
+            SUM(CASE WHEN combat_type='pvp' AND outcome='player_died'   THEN 1 ELSE 0 END) AS pvp_l,
+            SUM(CASE WHEN outcome='opponent_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_w,
+            SUM(CASE WHEN outcome='player_died'   AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_l
+        FROM combat_results
+        WHERE run_id=?
+    """, (run_id,)).fetchone()
+    if not row:
+        return {"pvp_wins": 0, "pvp_losses": 0, "pve_wins": 0, "pve_losses": 0}
+    return {
+        "pvp_wins": row["pvp_w"] or 0,
+        "pvp_losses": row["pvp_l"] or 0,
+        "pve_wins": row["pve_w"] or 0,
+        "pve_losses": row["pve_l"] or 0,
+    }
+
+
+def _get_mono_record(conn, run: dict) -> Optional[dict]:
+    rows = _get_run_mono_state_rows(conn, run)
+    if not rows:
+        return None
+
+    pvp_w = pvp_l = 0
+    has_pvp_total = False
+    pve_w = pve_l = 0
+    has_combat_signal = False
+    has_pve_signal = False
+    active_combat: Optional[str] = None
+    last_state = None
+
+    for row in rows:
+        state = row["run_state"]
+        if state == last_state:
+            continue
+        last_state = state
+
+        if row["victories"] is not None:
+            pvp_w = row["victories"]
+            pvp_l = row["defeats"] or 0
+            has_pvp_total = True
+
+        if state == "Combat":
+            active_combat = "pve"
+            has_combat_signal = True
+            has_pve_signal = True
+            continue
+        if state == "PVPCombat":
+            active_combat = "pvp"
+            has_combat_signal = True
+            continue
+
+        if active_combat == "pve":
+            if state in _PVE_WIN_STATES:
+                pve_w += 1
+                active_combat = None
+            elif state in _PVE_LOSS_STATES:
+                pve_l += 1
+                active_combat = None
+        elif active_combat == "pvp" and state not in ("Combat", "PVPCombat"):
+            active_combat = None
+
+    return {
+        "pvp_wins": pvp_w,
+        "pvp_losses": pvp_l,
+        "pve_wins": pve_w,
+        "pve_losses": pve_l,
+        "has_pvp_total": has_pvp_total,
+        "has_combat_signal": has_combat_signal,
+        "has_pve_signal": has_pve_signal,
+    }
+
+
+def _get_run_mono_state_rows(conn, run: dict):
+    bounds = conn.execute(
+        """
+        SELECT MIN(api_game_state_id) AS first_id,
+               MAX(api_game_state_id) AS last_id
+        FROM decisions
+        WHERE run_id = ? AND api_game_state_id IS NOT NULL
+        """,
+        (run["id"],),
+    ).fetchone()
+    if not bounds or bounds["first_id"] is None:
+        return []
+
+    start_id = bounds["first_id"]
+    end_snap = _get_run_end_snapshot(conn, run)
+    end_id = end_snap.get("id") if end_snap else None
+    next_run_first_id = _get_next_run_first_api_state_id(conn, run, start_id)
+    if end_id is None:
+        latest = conn.execute(
+            """
+            SELECT MAX(id) AS latest_id
+            FROM api_game_states
+            WHERE id >= ?
+              AND (? IS NULL OR id < ?)
+              AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
+            """,
+            (start_id, next_run_first_id, next_run_first_id, run.get("hero"), run.get("hero")),
+        ).fetchone()
+        end_id = latest["latest_id"] if latest and latest["latest_id"] is not None else bounds["last_id"]
+
+    return conn.execute(
+        """
+        SELECT id, run_state, day, hour, victories, defeats
+        FROM api_game_states
+        WHERE id >= ? AND id <= ?
+          AND run_state IS NOT NULL
+          AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
+        ORDER BY id
+        """,
+        (start_id, end_id, run.get("hero"), run.get("hero")),
+    ).fetchall()
+
+
+def _get_next_run_first_api_state_id(conn, run: dict, after_id: int) -> Optional[int]:
     row = conn.execute(
         """
-        SELECT day, hour, gold, health, health_max,
+        SELECT MIN(d.api_game_state_id) AS next_id
+        FROM decisions d
+        WHERE d.run_id > ?
+          AND d.api_game_state_id IS NOT NULL
+          AND d.api_game_state_id > ?
+        """,
+        (run["id"], after_id),
+    ).fetchone()
+    return row["next_id"] if row and row["next_id"] is not None else None
+
+
+def _get_latest_live_snapshot(conn) -> Optional[dict]:
+    """Return the most recent in-progress Mono snapshot row."""
+    prestige_expr = _prestige_select_expr(conn)
+    row = conn.execute(
+        f"""
+        SELECT id, day, hour, gold, health, health_max,
                victories, defeats, run_state, captured_at,
-               json_extract(full_json, '$.player.Prestige') AS prestige
+               {prestige_expr}
         FROM api_game_states
         WHERE run_state IS NOT NULL
           AND run_state NOT IN ('EndRunDefeat', 'EndRunVictory')
@@ -73,6 +259,7 @@ def _get_latest_live_snapshot(conn) -> Optional[dict]:
 
 def _get_run_end_snapshot(conn, run: dict) -> Optional[dict]:
     """Return a completed-run snapshot linked from decision live context."""
+    prestige_expr = _prestige_select_expr(conn)
     latest = conn.execute(
         """
         SELECT api_game_state_id
@@ -85,34 +272,49 @@ def _get_run_end_snapshot(conn, run: dict) -> Optional[dict]:
     ).fetchone()
     if not latest:
         return None
+    next_run_first_id = _get_next_run_first_api_state_id(conn, run, latest["api_game_state_id"])
     row = conn.execute(
-        """
-        SELECT day, hour, gold, health, health_max,
+        f"""
+        SELECT id, day, hour, gold, health, health_max,
                victories, defeats, run_state, captured_at,
-               json_extract(full_json, '$.player.Prestige') AS prestige
+               {prestige_expr}
         FROM api_game_states
         WHERE id >= ?
+          AND (? IS NULL OR id < ?)
           AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
           AND run_state IN ('EndRunDefeat', 'EndRunVictory')
-        ORDER BY id DESC
+        ORDER BY id ASC
         LIMIT 1
         """,
-        (latest["api_game_state_id"], run.get("hero"), run.get("hero")),
+        (
+            latest["api_game_state_id"],
+            next_run_first_id,
+            next_run_first_id,
+            run.get("hero"),
+            run.get("hero"),
+        ),
     ).fetchone()
     if row:
         return dict(row)
     row = conn.execute(
-        """
-        SELECT day, hour, gold, health, health_max,
+        f"""
+        SELECT id, day, hour, gold, health, health_max,
                victories, defeats, run_state, captured_at,
-               json_extract(full_json, '$.player.Prestige') AS prestige
+               {prestige_expr}
         FROM api_game_states
         WHERE id >= ?
+          AND (? IS NULL OR id < ?)
           AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
-        ORDER BY id DESC
+        ORDER BY id ASC
         LIMIT 1
         """,
-        (latest["api_game_state_id"], run.get("hero"), run.get("hero")),
+        (
+            latest["api_game_state_id"],
+            next_run_first_id,
+            next_run_first_id,
+            run.get("hero"),
+            run.get("hero"),
+        ),
     ).fetchone()
     if row:
         return dict(row)
@@ -215,7 +417,8 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
     )
 
     # ── Live header stats ────────────────────────────────────────────────────
-    pve_w, pve_l = _get_pve_record(conn, run["id"])
+    run_record = _get_run_record(conn, run)
+    pve_w, pve_l = run_record["pve_wins"], run_record["pve_losses"]
     current_day = current_hour = current_gold = current_health = current_health_max = None
     current_prestige = None
     pvp_w = pvp_l = 0
@@ -238,7 +441,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
                 current_day = latest_decision.get("day")
                 current_gold = latest_decision.get("gold")
                 current_health = latest_decision.get("health")
-            pvp_w, pvp_l = _get_pvp_record(conn, run["id"], run)
+            pvp_w, pvp_l = run_record["pvp_wins"], run_record["pvp_losses"]
             snapshot_source = "decision_fallback"
     else:
         end_snap = _get_run_end_snapshot(conn, run)
@@ -257,7 +460,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
                 current_day = latest_decision.get("day")
                 current_gold = latest_decision.get("gold")
                 current_health = latest_decision.get("health")
-            pvp_w, pvp_l = _get_pvp_record(conn, run["id"], run)
+            pvp_w, pvp_l = run_record["pvp_wins"], run_record["pvp_losses"]
             snapshot_source = "decision_fallback"
 
     score_summary = summarize_overlay_review_rows(decision_rows)

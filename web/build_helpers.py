@@ -323,7 +323,7 @@ def build_run_summary(
     # PvP / PvE
     from web.overlay_state import _get_pvp_record, _get_pve_record, _get_run_end_snapshot
     pvp_w, pvp_l = _get_pvp_record(conn, run_id, run)
-    pve_w, pve_l = _get_pve_record(conn, run_id)
+    pve_w, pve_l = _get_pve_record(conn, run_id, run)
     end_snap = _get_run_end_snapshot(conn, run)
     run_tier = classify_run_tier(
         pvp_w, pvp_l,
