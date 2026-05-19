@@ -243,3 +243,52 @@ def test_api_runs_terminal_mono_overrides_combat_counts(tmp_path, monkeypatch):
     # Terminal Mono snapshot overrides: 3 wins, 2 losses.
     assert row["pvp_wins"] == 3
     assert row["pvp_losses"] == 2
+
+
+def test_api_runs_prefers_mono_anchored_run_record(tmp_path, monkeypatch):
+    """
+    Mono snapshots should be the preferred source for run records when they are
+    anchored to the run by decision api_game_state_id values.
+    """
+    db = _make_db(tmp_path)
+    conn = sqlite3.connect(db)
+
+    r1 = _seed_run(conn, hero="Karnok", outcome="defeat")
+    # Stale Player.log-derived rows should not win when Mono can describe the run.
+    _seed_combat(conn, r1, "pve", "opponent_died")
+    _seed_decision(conn, r1, 1, api_game_state_id=10)
+
+    conn.executemany(
+        """INSERT INTO api_game_states
+           (id, run_id, run_state, victories, defeats, hero, day, hour)
+           VALUES (?, ?, ?, ?, ?, 'Karnok', ?, ?)""",
+        [
+            (10, r1, "Choice", 0, 0, 1, 0),
+            (11, r1, "Combat", 0, 0, 1, 3),
+            (12, r1, "Loot", 0, 0, 1, 3),
+            (13, r1, "Combat", 0, 0, 2, 3),
+            (14, r1, "Choice", 0, 0, 2, 3),
+            (15, r1, "PVPCombat", 0, 0, 2, 6),
+            (16, r1, "Choice", 1, 0, 3, 0),
+            (17, r1, "PVPCombat", 1, 0, 3, 6),
+            (18, r1, "EndRunDefeat", 1, 1, 3, 6),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(server, "_get_db_path", lambda: db)
+    monkeypatch.setattr(
+        server,
+        "infer_archetype_from_decisions",
+        lambda conn, run_id, **kwargs: (None, None),
+    )
+
+    resp = server.app.test_client().get("/api/runs")
+    assert resp.status_code == 200
+    row = resp.get_json()[0]
+
+    assert row["pvp_wins"] == 1
+    assert row["pvp_losses"] == 1
+    assert row["pve_wins"] == 1
+    assert row["pve_losses"] == 1

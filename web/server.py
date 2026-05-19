@@ -55,7 +55,7 @@ from web.build_helpers import (
     build_run_summary,
     invalidate_catalog_cache,
 )
-from web.overlay_state import build_overlay_state, _get_pvp_record
+from web.overlay_state import build_overlay_state, _get_run_record
 from web.review_builder import format_decision_row
 from web.card_images import IMAGE_DIR as CARD_IMAGE_DIR, lookup_image_url
 
@@ -669,58 +669,7 @@ def api_runs():
         run_ids = [r["id"] for r in run_dicts]
         placeholders = ",".join("?" * len(run_ids))
 
-        # --- Chunk 1: combat counts in one pass ---
-        combat_rows = conn.execute(f"""
-            SELECT run_id,
-                SUM(CASE WHEN combat_type='pvp' AND outcome='opponent_died' THEN 1 ELSE 0 END) AS pvp_w,
-                SUM(CASE WHEN combat_type='pvp' AND outcome='player_died'   THEN 1 ELSE 0 END) AS pvp_l,
-                SUM(CASE WHEN outcome='opponent_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_w,
-                SUM(CASE WHEN outcome='player_died'   AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_l
-            FROM combat_results
-            WHERE run_id IN ({placeholders})
-            GROUP BY run_id
-        """, run_ids).fetchall()
-        combat_by_run = {c["run_id"]: dict(c) for c in combat_rows}
-
-        # Terminal Mono override (preserves _get_pvp_record semantics):
-        # Step 1 — max api_game_state_id anchored at the last decision per run.
-        gsid_rows = conn.execute(f"""
-            SELECT run_id, MAX(api_game_state_id) AS max_gsid
-            FROM decisions
-            WHERE run_id IN ({placeholders}) AND api_game_state_id IS NOT NULL
-            GROUP BY run_id
-        """, run_ids).fetchall()
-        gsid_by_run = {g["run_id"]: g["max_gsid"] for g in gsid_rows}
-
-        # Step 2 — for each run that has an anchor, find the nearest EndRun snapshot.
-        # Build hero lookup for the hero-filter that _get_pvp_record applies.
-        hero_by_run = {r["id"]: r.get("hero") for r in run_dicts}
-        terminal_by_run: dict[int, dict] = {}
-        for run_id, max_gsid in gsid_by_run.items():
-            hero = hero_by_run.get(run_id)
-            # Prefer EndRun state with hero match; fall back to any state at that anchor.
-            row = conn.execute("""
-                SELECT victories, defeats
-                FROM api_game_states
-                WHERE id >= ?
-                  AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
-                  AND run_state IN ('EndRunDefeat', 'EndRunVictory')
-                ORDER BY id DESC
-                LIMIT 1
-            """, (max_gsid, hero, hero)).fetchone()
-            if not row:
-                row = conn.execute("""
-                    SELECT victories, defeats
-                    FROM api_game_states
-                    WHERE id >= ?
-                      AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
-                    ORDER BY id DESC
-                    LIMIT 1
-                """, (max_gsid, hero, hero)).fetchone()
-            if row and row["victories"] is not None:
-                terminal_by_run[run_id] = dict(row)
-
-        # --- Chunk 2: COMMITTED archetype scan in one pass ---
+        # --- Chunk 1: COMMITTED archetype scan in one pass ---
         committed_rows = conn.execute(f"""
             SELECT run_id, decision_seq, score_notes
             FROM decisions
@@ -738,17 +687,11 @@ def api_runs():
             rid = r["id"]
             build_data, _relevant_items = load_builds(r.get("hero"))
 
-            combat = combat_by_run.get(rid, {})
-            pvp_w = combat.get("pvp_w") or 0
-            pvp_l = combat.get("pvp_l") or 0
-            pve_w = combat.get("pve_w") or 0
-            pve_l = combat.get("pve_l") or 0
-
-            # Apply terminal Mono override when available (mirrors _get_pvp_record).
-            terminal = terminal_by_run.get(rid)
-            if terminal:
-                pvp_w = terminal["victories"]
-                pvp_l = terminal.get("defeats") or 0
+            run_record = _get_run_record(conn, r)
+            pvp_w = run_record["pvp_wins"]
+            pvp_l = run_record["pvp_losses"]
+            pve_w = run_record["pve_wins"]
+            pve_l = run_record["pve_losses"]
 
             archetype = None
             notes = first_committed.get(rid)
