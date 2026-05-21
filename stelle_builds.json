@@ -28,7 +28,69 @@
     "late": {
       "day_range": "Day 7-13",
       "description": "Placeholder late-phase description for the Stelle PoC seed.",
-      "archetypes": []
+      "archetypes": [
+        {
+          "name": "Repair Drone / Buster / Freefall Simulator",
+          "phase": "late",
+          "core_items": [
+            "Buster",
+            "Freefall Simulator",
+            "Repair Drone"
+          ],
+          "carry_items": [],
+          "support_items": [
+            "Parts Picker",
+            "Pogo Stick"
+          ]
+        },
+        {
+          "name": "Chicken Cannon",
+          "phase": "late",
+          "core_items": [
+            "Windbreaker"
+          ],
+          "carry_items": [
+            "Chicken Cannon"
+          ],
+          "support_items": [
+            "Radar Dome"
+          ]
+        },
+        {
+          "name": "Sirens / Observatory / Ornithopter",
+          "phase": "late",
+          "core_items": [
+            "Ornithopter"
+          ],
+          "carry_items": [],
+          "support_items": [
+            "Space Laser"
+          ]
+        },
+        {
+          "name": "Private Runabout",
+          "phase": "late",
+          "core_items": [
+            "Launch Tower"
+          ],
+          "carry_items": [
+            "Private Runabout"
+          ],
+          "support_items": [
+            "Jetpack"
+          ]
+        },
+        {
+          "name": "LavaRoller",
+          "phase": "late",
+          "carry_items": [
+            "LavaRoller"
+          ],
+          "support_items": [
+            "Ni-Kola"
+          ]
+        }
+      ]
     }
   }
 }
