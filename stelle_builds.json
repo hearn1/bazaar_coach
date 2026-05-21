@@ -57,18 +57,32 @@
           ]
         },
         {
+          "name": "Waterskin / Messenger Sparrow / Flying Squirrel",
+          "phase": "late",
+          "core_items": [
+            "Flying Squirrel"
+          ],
+          "carry_items": [
+            "Waterskin"
+          ],
+          "support_items": [
+            "Hunter's Journal",
+            "Runic Claymore"
+          ]
+        },
+        {
           "name": "Sirens / Observatory / Ornithopter",
           "phase": "late",
           "core_items": [
-            "Ornithopter",
-            "Observatory"
+            "Observatory",
+            "Ornithopter"
           ],
           "carry_items": [
             "Sirens"
           ],
           "support_items": [
-            "Space Laser",
-            "Goggles"
+            "Goggles",
+            "Space Laser"
           ]
         },
         {
