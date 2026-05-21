@@ -60,11 +60,15 @@
           "name": "Sirens / Observatory / Ornithopter",
           "phase": "late",
           "core_items": [
-            "Ornithopter"
+            "Ornithopter",
+            "Observatory"
           ],
-          "carry_items": [],
+          "carry_items": [
+            "Sirens"
+          ],
           "support_items": [
-            "Space Laser"
+            "Space Laser",
+            "Goggles"
           ]
         },
         {
