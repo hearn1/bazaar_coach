@@ -115,13 +115,14 @@ def test_installer_uninstall_uses_deltree_not_uninstalldelete():
     assert "[UninstallDelete]" not in iss
 
 
-def test_installer_has_cli_shortcuts():
+def test_installer_has_versioned_shortcuts_and_doctor():
     root = app_paths.repo_dir()
     iss = (root / "packaging" / "installer" / "BazaarCoach.iss").read_text()
 
-    assert "BazaarCoachCLI.exe" in iss
-    assert "refresh-builds" in iss
-    assert "export-diagnostics" in iss
+    assert "Bazaar Coach ({#AppVersion})" in iss
+    assert "Bazaar Coach Doctor ({#AppVersion})" in iss
+    assert "doctor" in iss
+    assert "BazaarCoach.exe" in iss
 
 
 def test_build_portable_selects_python_flexibly():
