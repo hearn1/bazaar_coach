@@ -20,6 +20,13 @@ from pathlib import Path
 from typing import Optional
 
 APP_NAME = "BazaarCoach"
+BAZAAR_COACH_INSTALL_DIR = "Bazaar Coach"
+COACH_EXE_NAME = "BazaarCoach.exe"
+
+
+def coach_exe_path() -> Path:
+    """Resolved path to the running BazaarCoach executable."""
+    return Path(sys.executable).resolve()
 
 
 def is_packaged() -> bool:
@@ -74,6 +81,52 @@ def _platform_settings_dir() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / APP_NAME
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
+
+
+def _path_is_inside(path: Path, directory: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(directory.resolve(strict=False))
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _program_files_roots() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        raw = os.environ.get(env_name)
+        if not raw:
+            continue
+        key = raw.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(Path(raw))
+    return roots
+
+
+def is_inno_installed_runtime() -> bool:
+    """True when the frozen exe lives under Program Files\\Bazaar Coach\\{version}."""
+    if not is_packaged():
+        return False
+    exe = coach_exe_path()
+    for root in _program_files_roots():
+        install_root = root / BAZAAR_COACH_INSTALL_DIR
+        if _path_is_inside(exe, install_root):
+            return True
+    return False
+
+
+def portable_root() -> Optional[Path]:
+    """Root folder for a portable onedir build, or None for dev/Inno installs."""
+    if not is_packaged() or is_inno_installed_runtime():
+        return None
+    return coach_exe_path().parent
+
+
+def is_portable_runtime() -> bool:
+    return portable_root() is not None
 
 
 def user_data_mode() -> bool:

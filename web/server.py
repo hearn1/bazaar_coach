@@ -28,7 +28,7 @@ import tempfile
 import threading
 import sys
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Callable
 from pathlib import Path
 from urllib.parse import unquote
@@ -788,6 +788,57 @@ def api_setup_status():
     return jsonify(first_run.setup_status())
 
 
+def _update_check_stale(last_check: Optional[dict], interval_hours: object) -> bool:
+    if not isinstance(last_check, dict):
+        return True
+    try:
+        interval = float(interval_hours)
+    except (TypeError, ValueError):
+        interval = 24.0
+    if interval <= 0:
+        return False
+    checked_at = last_check.get("checked_at")
+    if not checked_at:
+        return True
+    try:
+        checked = datetime.fromisoformat(str(checked_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - checked) >= timedelta(hours=interval)
+
+
+def _with_update_handoff_state(payload: dict) -> dict:
+    out = dict(payload or {})
+    try:
+        import settings
+
+        settings.load()
+        out["last_download"] = settings.get("updates.last_download")
+        out["last_install"] = settings.get("updates.last_install")
+    except Exception:
+        out["last_download"] = None
+        out["last_install"] = None
+    try:
+        import app_paths
+
+        out["install_launch_available"] = app_paths.is_packaged()
+    except Exception:
+        out["install_launch_available"] = False
+    try:
+        out = update_checker.enrich_update_handoff_state(out)
+    except Exception:
+        out["installed_exe_path"] = None
+        out["relaunch_available"] = False
+        out["relaunch_after_install"] = False
+    return out
+
+
+def _with_last_update_download(payload: dict) -> dict:
+    return _with_update_handoff_state(payload)
+
+
 @app.route("/api/updates/status")
 def api_updates_status():
     force = request.args.get("force") in {"1", "true", "yes"}
@@ -796,14 +847,17 @@ def api_updates_status():
 
         settings.load()
         last_check = settings.get("updates.last_check")
+        interval_hours = settings.get("updates.check_interval_hours", 24)
     except Exception:
         last_check = None
-    if force or not last_check:
+        interval_hours = 24
+    stale = _update_check_stale(last_check, interval_hours)
+    if force or not last_check or stale:
         try:
-            return jsonify(update_checker.check_for_updates(persist=True))
+            return jsonify(_with_last_update_download(update_checker.check_for_updates(persist=True)))
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)})
-    return jsonify(last_check)
+    return jsonify(_with_last_update_download(last_check))
 
 
 @app.route("/api/updates/dismiss", methods=["POST"])
@@ -816,6 +870,140 @@ def api_updates_dismiss():
     if not version:
         return jsonify({"ok": False, "error": "no version to dismiss"}), 400
     return jsonify(update_checker.dismiss_update(str(version)))
+
+
+@app.route("/api/updates/download", methods=["POST"])
+def api_updates_download():
+    payload = request.get_json(silent=True) or {}
+    manifest = payload if payload.get("download_url") else None
+    prefer_portable = payload.get("prefer_portable")
+    if prefer_portable not in (True, False):
+        prefer_portable = None
+    if manifest is None:
+        try:
+            import settings
+
+            settings.load()
+            manifest = settings.get("updates.last_check") or {}
+        except Exception:
+            manifest = {}
+    result = update_checker.download_update(
+        manifest=manifest,
+        prefer_portable=prefer_portable,
+        persist=True,
+    )
+    status_code = 200 if result.get("ok") else 400
+    return jsonify(result), status_code
+
+
+@app.route("/api/updates/reveal-installer", methods=["POST"])
+def api_updates_reveal_installer():
+    result = update_checker.reveal_downloaded_installer()
+    status_code = 200 if result.get("ok") else 400
+    return jsonify(result), status_code
+
+
+@app.route("/api/updates/install", methods=["POST"])
+def api_updates_install():
+    payload = request.get_json(silent=True) or {}
+    shutdown_first = payload.get("shutdown_first", True)
+    if shutdown_first not in (True, False):
+        shutdown_first = bool(shutdown_first)
+    if "install_silent" in payload:
+        try:
+            import settings
+
+            settings.load()
+            settings.set("updates.install_silent", bool(payload.get("install_silent")))
+            settings.save()
+        except Exception:
+            pass
+    try:
+        import settings
+
+        settings.load()
+        manifest = settings.get("updates.last_check") or {}
+    except Exception:
+        manifest = {}
+    blocked = update_checker.upgrade_blocked_reason(manifest)
+    if blocked:
+        return jsonify({"ok": False, "error": blocked}), 400
+    shutdown_cb = _shutdown_callback if shutdown_first else None
+    result = update_checker.launch_downloaded_installer(
+        shutdown_first=shutdown_first,
+        shutdown_callback=shutdown_cb,
+    )
+    status_code = 200 if result.get("ok") else 400
+    return jsonify(result), status_code
+
+
+@app.route("/api/updates/apply-portable", methods=["POST"])
+def api_updates_apply_portable():
+    payload = request.get_json(silent=True) or {}
+    shutdown_first = payload.get("shutdown_first", True)
+    if shutdown_first not in (True, False):
+        shutdown_first = bool(shutdown_first)
+    try:
+        import settings
+
+        settings.load()
+        manifest = settings.get("updates.last_check") or settings.get("updates.last_download") or {}
+    except Exception:
+        manifest = {}
+    blocked = update_checker.upgrade_blocked_reason(manifest)
+    if blocked:
+        return jsonify({"ok": False, "error": blocked}), 400
+    shutdown_cb = _shutdown_callback if shutdown_first else None
+    result = update_checker.apply_portable_update(
+        shutdown_first=shutdown_first,
+        shutdown_callback=shutdown_cb,
+    )
+    status_code = 200 if result.get("ok") else 400
+    return jsonify(result), status_code
+
+
+@app.route("/api/updates/preferences", methods=["POST"])
+def api_updates_preferences():
+    payload = request.get_json(silent=True) or {}
+    try:
+        import settings
+
+        settings.load()
+        if "download_on_check" in payload:
+            settings.set("updates.download_on_check", bool(payload.get("download_on_check")))
+        if "install_on_quit" in payload:
+            settings.set("updates.install_on_quit", bool(payload.get("install_on_quit")))
+        settings.save()
+        return jsonify({
+            "ok": True,
+            "download_on_check": settings.get("updates.download_on_check", False),
+            "install_on_quit": settings.get("updates.install_on_quit", False),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/updates/relaunch", methods=["POST"])
+def api_updates_relaunch():
+    payload = request.get_json(silent=True) or {}
+    target_version = payload.get("target_version")
+    if not target_version:
+        try:
+            import settings
+
+            settings.load()
+            target_version = update_checker._resolve_relaunch_target_version(
+                last_install=settings.get("updates.last_install"),
+                last_download=settings.get("updates.last_download"),
+                last_check=settings.get("updates.last_check"),
+            )
+        except Exception:
+            target_version = None
+    if not target_version:
+        return jsonify({"ok": False, "error": "no target_version to relaunch"}), 400
+    result = update_checker.relaunch_installed_coach(str(target_version))
+    status_code = 200 if result.get("ok") else 400
+    return jsonify(result), status_code
 
 
 # ── Routes — control ──────────────────────────────────────────────────────────

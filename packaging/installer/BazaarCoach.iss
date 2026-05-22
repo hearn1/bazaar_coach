@@ -41,13 +41,16 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"
-Name: "{group}\Bazaar Coach Doctor"; Filename: "{cmd}"; Parameters: "/K ""{app}\BazaarCoach.exe"" doctor"; WorkingDir: "{app}"
-Name: "{group}\Uninstall Bazaar Coach"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+; Versioned shortcuts for side-by-side installs. A stable "Bazaar Coach" Start Menu
+; shortcut targeting the newest build is refreshed by the app after updates.
+Name: "{group}\Bazaar Coach ({#AppVersion})"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"
+Name: "{group}\Bazaar Coach Doctor ({#AppVersion})"; Filename: "{cmd}"; Parameters: "/K ""{app}\BazaarCoach.exe"" doctor"; WorkingDir: "{app}"
+Name: "{group}\Uninstall Bazaar Coach ({#AppVersion})"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Bazaar Coach ({#AppVersion})"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\BazaarCoachCLI.exe"; Parameters: "doctor"; Description: "Run Bazaar Coach Doctor"; Flags: postinstall skipifsilent
+Filename: "{app}\BazaarCoach.exe"; Description: "Launch Bazaar Coach"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\BazaarCoachCLI.exe"; Parameters: "doctor"; Description: "Run Bazaar Coach Doctor"; Flags: postinstall skipifsilent unchecked
 
 [Code]
 var
@@ -65,6 +68,17 @@ begin
     ) = IDYES;
 end;
 
+procedure ForceRemoveUserDataDir(const DirPath: string);
+var
+  ResultCode: Integer;
+begin
+  if DirExists(DirPath) then
+  begin
+    if not DelTree(DirPath, True, True, True) then
+      Exec('cmd.exe', '/c rd /s /q "' + DirPath + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   AppDataPath: string;
@@ -76,10 +90,8 @@ begin
     begin
       AppDataPath := ExpandConstant('{userappdata}\BazaarCoach');
       LocalDataPath := ExpandConstant('{localappdata}\BazaarCoach');
-      if DirExists(AppDataPath) then
-        DelTree(AppDataPath, True, True, True);
-      if DirExists(LocalDataPath) then
-        DelTree(LocalDataPath, True, True, True);
+      ForceRemoveUserDataDir(AppDataPath);
+      ForceRemoveUserDataDir(LocalDataPath);
     end;
   end;
 end;

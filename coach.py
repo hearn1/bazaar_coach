@@ -202,6 +202,13 @@ def _shutdown(mono_proc, log_handle, original_stdout, original_stderr):
     7. Close session log
     8. Restore stdout/stderr
     """
+    try:
+        import update_checker
+
+        update_checker.run_pending_update_on_quit()
+    except Exception:
+        pass
+
     # Step 1-2: Terminate Mono subprocess with escalating force
     if mono_proc and mono_proc.poll() is None:
         print("[Coach] Stopping capture_mono...")
@@ -342,6 +349,9 @@ def main():
     try:
         # Load settings (populates cache from disk)
         settings.load()
+        import update_checker
+
+        update_checker.verify_pending_install_on_startup(persist=True)
         import first_run
         setup_report = first_run.run_setup(refresh_content="never", refresh_images_enabled=False)
         if setup_report.get("steps"):

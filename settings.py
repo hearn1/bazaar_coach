@@ -38,7 +38,9 @@ from typing import Any, Optional
 
 import app_paths
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
+
+DEFAULT_UPDATES_GITHUB_REPO = "hearn1/bazaar_coach"
 
 
 DEFAULTS = {
@@ -77,11 +79,19 @@ DEFAULTS = {
         "steps": {},
     },
     "updates": {
-        "enabled": False,
+        "enabled": True,
         "channel": "stable",
         "manifest_url": None,
-        "github_repo": None,
+        "github_repo": DEFAULT_UPDATES_GITHUB_REPO,
+        "check_interval_hours": 24,
         "last_check": None,
+        "last_download": None,
+        "last_install": None,
+        "install_silent": False,
+        "relaunch_after_install": None,
+        "download_on_check": False,
+        "install_on_quit": False,
+        "last_portable_apply": None,
         "dismissed_version": None,
     },
     "_meta": {
@@ -256,6 +266,25 @@ def migrate_settings(data: dict) -> dict:
 
     if current_version < 4 and "tracker" in out and "coach" not in out:
         out["coach"] = out.pop("tracker")
+
+    if current_version < 5:
+        updates = out.setdefault("updates", {})
+        was_unconfigured_default = (
+            updates.get("enabled") is False
+            and not updates.get("manifest_url")
+            and not updates.get("github_repo")
+            and not updates.get("last_check")
+            and not updates.get("dismissed_version")
+        )
+        if was_unconfigured_default:
+            updates["enabled"] = True
+            updates["github_repo"] = DEFAULT_UPDATES_GITHUB_REPO
+
+    if current_version < 6:
+        updates = out.setdefault("updates", {})
+        updates.setdefault("download_on_check", False)
+        updates.setdefault("install_on_quit", False)
+        updates.setdefault("last_portable_apply", None)
 
     out["schema_version"] = SCHEMA_VERSION
     return out

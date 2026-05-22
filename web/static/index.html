@@ -333,6 +333,15 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
 .update-notice.visible { display: flex; }
 .update-notice .release-link { color: var(--blue); text-decoration: none; font-weight: 600; }
 .update-notice .release-link:hover { text-decoration: underline; }
+.update-notice .update-download {
+  color: var(--bg-root); background: var(--blue);
+  border: 1px solid var(--blue); border-radius: var(--radius);
+  padding: 4px 10px; text-decoration: none; cursor: pointer;
+  font-size: 0.75rem; font-weight: 700;
+}
+.update-notice .update-download:hover { filter: brightness(1.08); }
+.update-notice .update-download:disabled { opacity: 0.58; cursor: wait; filter: none; }
+.update-notice .update-detail { font-family: var(--font-mono); color: var(--text-muted); }
 .update-notice .dismiss-update {
   margin-left: auto; color: var(--text-secondary); background: transparent;
   border: 1px solid var(--border-lite); border-radius: var(--radius);
@@ -350,6 +359,18 @@ header .history-toggle:hover { border-color: var(--accent-dim); color: var(--acc
 }
 .update-notice.status-warning {
   background: rgba(201,164,74,0.10); border-color: var(--accent-dim);
+}
+.update-notice.status-mandatory {
+  background: rgba(220, 90, 70, 0.14); border-color: rgba(220, 90, 70, 0.45);
+}
+.update-notice .update-secondary {
+  color: var(--text-primary); background: transparent;
+  border: 1px solid var(--border-lite); border-radius: var(--radius);
+  padding: 4px 10px; cursor: pointer; font-size: 0.75rem; font-weight: 600;
+}
+.update-notice .update-secondary:hover { border-color: var(--blue); color: var(--blue); }
+.update-notice .update-advanced {
+  display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-muted);
 }
 .build-panel {
   display: none; margin: -6px 0 20px; padding: 12px;
@@ -484,6 +505,7 @@ let currentSummary = null;
 let buildRefreshPoll = null;
 let buildNoticeDismissed = false;
 let currentBuildStatus = null;
+let currentUpdateStatus = null;
 
 const SUPPORTED_BUILD_HEROES = new Set(['dooley', 'karnok', 'mak', 'pygmalien', 'vanessa']);
 
@@ -511,27 +533,377 @@ async function api(url) {
   if (!r.ok) throw new Error(`${r.status}`);
   return r.json();
 }
+async function postJson(url, payload) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.ok === false) throw new Error(data.error || `${r.status}`);
+  return data;
+}
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function isUsableDownloadedAsset(download, latestVersion) {
+  if (!download || download.ok !== true || !download.file_path) return false;
+  if (!['verified', 'downloaded'].includes(download.status)) return false;
+  return !latestVersion || !download.latest_version || download.latest_version === latestVersion;
+}
+
+function isPortableUpdateReady(status) {
+  return !!(status && status.portable_apply_ready);
+}
+
+function updateAssetLabel(status) {
+  if (status && status.portable_runtime) return 'portable package';
+  return 'installer';
+}
+
+function updateBackgroundPrefsHtml(status) {
+  const dl = status && status.download_on_check ? 'checked' : '';
+  const quit = status && status.install_on_quit ? 'checked' : '';
+  return `<div class="update-advanced">
+    <label><input type="checkbox" id="update-download-on-check" ${dl}
+      onchange="saveUpdatePreferences()"> Download updates automatically after check</label>
+    <label><input type="checkbox" id="update-install-on-quit" ${quit}
+      onchange="saveUpdatePreferences()"> Apply downloaded update when I quit Bazaar Coach</label>
+    <span>Install-on-quit never runs silently unless you also enable silent install.</span>
+  </div>`;
+}
+
+async function saveUpdatePreferences() {
+  const downloadOnCheck = document.getElementById('update-download-on-check')?.checked === true;
+  const installOnQuit = document.getElementById('update-install-on-quit')?.checked === true;
+  try {
+    await postJson('/api/updates/preferences', {
+      download_on_check: downloadOnCheck,
+      install_on_quit: installOnQuit,
+    });
+    if (currentUpdateStatus) {
+      currentUpdateStatus.download_on_check = downloadOnCheck;
+      currentUpdateStatus.install_on_quit = installOnQuit;
+    }
+  } catch (e) {
+    // Non-blocking preference write.
+  }
+}
+
+function relaunchUpdatedAppButton(status) {
+  if (!status.relaunch_available) return '';
+  const target = (status.last_install && status.last_install.target_version)
+    || status.latest_version
+    || '';
+  return `<button class="update-secondary" id="update-relaunch-btn" onclick="relaunchUpdatedApp()">Open updated app</button>`;
+}
+
+function multiVersionInstallCopy(status) {
+  if (status && status.portable_runtime) {
+    return '<span>Portable updates replace files in your current folder on exit.</span>';
+  }
+  return '<span>Versioned installs live under Program Files\\Bazaar Coach\\{version}. Use <strong>Open updated app</strong> or the Start Menu shortcut <strong>Bazaar Coach</strong> (refreshed after updates).</span>';
+}
+
+function renderInstallOutcomeNotice(el, status) {
+  const install = status.last_install;
+  if (!install || !install.target_version) return false;
+  const relaunchBtn = relaunchUpdatedAppButton(status);
+  if (install.status === 'verified') {
+    el.className = 'update-notice status-updated visible';
+    el.innerHTML = `
+      <strong>Update installed — you're on ${esc(status.current_version)}</strong>
+      <span>Target was ${esc(install.target_version)}</span>
+      ${multiVersionInstallCopy(status)}
+      ${relaunchBtn}`;
+    return true;
+  }
+  if (install.status === 'launched') {
+    const autoRelaunch = status.relaunch_after_install
+      ? '<span>Installer finished — launching Bazaar Coach when setup completes.</span>'
+      : '';
+    el.className = 'update-notice status-warning visible';
+    el.innerHTML = `
+      <strong>Installer launched — restart from Start Menu if needed</strong>
+      <span>Installing ${esc(install.target_version)}. Bazaar Coach closed so files are not locked.</span>
+      <span>Complete the Inno wizard, then open Bazaar Coach from the Start Menu.</span>
+      <span>Installs go under Program Files\\Bazaar Coach\\{version}.</span>
+      ${multiVersionInstallCopy(status)}
+      ${autoRelaunch}
+      ${relaunchBtn}`;
+    return true;
+  }
+  if (install.status === 'stale') {
+    el.className = 'update-notice status-failed visible';
+    el.innerHTML = `
+      <strong>Previous install not completed</strong>
+      <span>${esc(install.error || 'The launched installer was not verified after restart.')}</span>
+      <button class="update-download" id="update-download-btn" onclick="checkUpdates()">Check for update</button>`;
+    return true;
+  }
+  return false;
+}
 
 async function checkUpdates() {
   const el = document.getElementById('update-notice');
   if (!el) return;
   try {
     const status = await api('/api/updates/status');
+    currentUpdateStatus = status;
+    if (renderInstallOutcomeNotice(el, status)) return;
     if (!status.update_available || status.dismissed) return;
+    if (status.upgrade_blocked_reason) {
+      el.className = 'update-notice status-failed visible';
+      el.innerHTML = `
+        <strong>Update blocked</strong>
+        <span>${esc(status.upgrade_blocked_reason)}</span>
+        <span>Download a newer build manually from release notes if needed.</span>`;
+      return;
+    }
     const notes = status.release_notes_url
       ? `<a class="release-link" href="${esc(status.release_notes_url)}" target="_blank" rel="noreferrer">Release notes</a>`
       : '';
+    const downloadReady = isUsableDownloadedAsset(status.last_download, status.latest_version);
+    const portableReady = isPortableUpdateReady(status);
+    const isPortable = !!status.portable_runtime;
+    const installBtn = downloadReady && !isPortable
+      ? `<button class="update-download" id="update-install-btn" onclick="installUpdate()">Install update</button>`
+      : '';
+    const portableApplyBtn = portableReady
+      ? `<button class="update-download" id="update-portable-apply-btn" onclick="applyPortableUpdate()">Apply update on exit</button>`
+      : '';
+    const silentOption = downloadReady && !isPortable
+      ? `<label class="update-advanced"><input type="checkbox" id="update-silent-checkbox"> Install silently (no wizard)</label>`
+      : '';
+    const downloadLabel = isPortable ? 'Download portable update' : 'Download installer';
+    const download = downloadReady
+      ? `${installBtn}${portableApplyBtn}
+         ${!isPortable ? '<button class="update-download" id="update-reveal-btn" onclick="revealInstaller()">Show installer in Explorer</button>' : ''}
+         <button class="dismiss-update" id="update-download-btn" onclick="downloadUpdate()">Download again</button>
+         ${silentOption}`
+      : status.download_url
+        ? `<button class="update-download" id="update-download-btn" onclick="downloadUpdate()">${downloadLabel}</button>`
+        : `<span>${esc(updateAssetLabel(status))} download unavailable</span>`;
     const compat = status.compatibility_notes ? `<span>${esc(status.compatibility_notes)}</span>` : '';
+    const mandatory = status.mandatory
+      ? '<span><strong>Required update</strong> — install to stay compatible.</span>'
+      : '';
+    const dismissBtn = status.mandatory
+      ? ''
+      : `<button class="dismiss-update" data-version="${esc(status.latest_version)}" onclick="dismissUpdate(this.dataset.version)">Dismiss</button>`;
+    const minimum = status.minimum_supported_version
+      ? `<span>Supports upgrades from ${esc(status.minimum_supported_version)}+</span>`
+      : '';
+    const readyCopy = downloadReady
+      ? (isPortable
+        ? '<span>Portable package downloaded and staged. Apply on exit to replace this folder.</span>'
+        : '<span>Installer already downloaded.</span>')
+      : '';
     el.innerHTML = `
       <strong>Update available: ${esc(status.latest_version)}</strong>
       <span>Current: ${esc(status.current_version)}</span>
       ${notes}
+      ${download}
+      ${readyCopy}
+      ${multiVersionInstallCopy(status)}
+      ${mandatory}
+      ${minimum}
       ${compat}
-      <button class="dismiss-update" data-version="${esc(status.latest_version)}" onclick="dismissUpdate(this.dataset.version)">Dismiss</button>`;
-    el.classList.add('visible');
+      ${updateBackgroundPrefsHtml(status)}
+      ${dismissBtn}`;
+    el.className = status.mandatory
+      ? 'update-notice status-mandatory visible'
+      : 'update-notice status-warning visible';
   } catch(e) {
     // Update checks are intentionally non-blocking.
+  }
+}
+
+async function downloadUpdate() {
+  const el = document.getElementById('update-notice');
+  const btn = document.getElementById('update-download-btn');
+  if (!currentUpdateStatus || !el) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Downloading...';
+  }
+  el.className = 'update-notice status-warning visible';
+  try {
+    const result = await postJson('/api/updates/download', {
+      ...currentUpdateStatus,
+      prefer_portable: !!currentUpdateStatus.portable_runtime,
+    });
+    currentUpdateStatus.last_download = result;
+    const verified = result.status === 'verified';
+    const isPortable = result.asset_kind === 'portable' || !!currentUpdateStatus.portable_runtime;
+    const title = verified
+      ? (isPortable ? 'Portable package verified' : 'Installer verified')
+      : (isPortable ? 'Portable package downloaded' : 'Installer downloaded');
+    const path = result.file_path ? `<span class="update-detail">${esc(result.file_path)}</span>` : '';
+    const hash = verified ? '<span>SHA256 verified</span>' : '<span>No checksum provided</span>';
+    const installBtn = isPortable
+      ? '<button class="update-download" id="update-portable-apply-btn" onclick="applyPortableUpdate()">Apply update on exit</button>'
+      : '<button class="update-download" id="update-install-btn" onclick="installUpdate()">Install update</button>';
+    const revealBtn = isPortable
+      ? ''
+      : '<button class="update-download" id="update-reveal-btn" onclick="revealInstaller()">Show installer in Explorer</button>';
+    el.className = 'update-notice status-updated visible';
+    el.innerHTML = `
+      <strong>${title}: ${esc(result.asset_name || currentUpdateStatus.asset_name || updateAssetLabel(currentUpdateStatus))}</strong>
+      ${hash}
+      ${path}
+      ${installBtn}
+      ${revealBtn}
+      <button class="dismiss-update" data-version="${esc(currentUpdateStatus.latest_version || '')}" onclick="dismissUpdate(this.dataset.version)">Dismiss</button>`;
+    await checkUpdates();
+  } catch(e) {
+    el.className = 'update-notice status-failed visible';
+    el.innerHTML = `
+      <strong>Download failed</strong>
+      <span>${esc(e.message || 'Unable to download installer.')}</span>
+      <button class="update-download" id="update-download-btn" onclick="downloadUpdate()">Retry</button>
+      <button class="dismiss-update" data-version="${esc(currentUpdateStatus.latest_version || '')}" onclick="dismissUpdate(this.dataset.version)">Dismiss</button>`;
+  }
+}
+
+async function installUpdate() {
+  const el = document.getElementById('update-notice');
+  if (!currentUpdateStatus || !el) return;
+  const version = currentUpdateStatus.latest_version || 'this update';
+  const silent = document.getElementById('update-silent-checkbox')?.checked === true;
+  const mandatory = !!currentUpdateStatus.mandatory;
+  const msg = silent
+    ? [
+        `Install ${version} silently?`,
+        '',
+        'No Inno wizard will appear. Bazaar Coach will close and reopen the updated build when setup finishes.',
+        'Start Menu shortcuts may still point at an older version until you use Open updated app.',
+      ].join('\n')
+    : [
+        `Install ${version}?`,
+        '',
+        mandatory ? 'This release is required for compatibility.' : '',
+        'Bazaar Coach will close so the installer can replace files.',
+        'Complete the Inno Setup wizard, then reopen Bazaar Coach from the Start Menu.',
+        'Each version installs under Program Files\\Bazaar Coach\\{version}.',
+        currentUpdateStatus.relaunch_after_install
+          ? 'The updated build should launch automatically when setup finishes.'
+          : '',
+      ].filter(Boolean).join('\n');
+  if (!window.confirm(msg)) return;
+  const btn = document.getElementById('update-install-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Launching installer...';
+  }
+  el.className = 'update-notice status-warning visible';
+  try {
+    const result = await postJson('/api/updates/install', {
+      shutdown_first: true,
+      install_silent: silent,
+      mandatory,
+    });
+    el.className = 'update-notice status-warning visible';
+    const relaunchMsg = currentUpdateStatus.relaunch_after_install
+      ? '<span>Installer finished — launching Bazaar Coach when setup completes.</span>'
+      : '<span>Complete the Inno wizard, then open Bazaar Coach from the Start Menu.</span>';
+    el.innerHTML = `
+      <strong>Installer launched</strong>
+      <span>Installing ${esc(result.target_version || version)}. Bazaar Coach is shutting down.</span>
+      ${relaunchMsg}
+      ${multiVersionInstallCopy(currentUpdateStatus)}`;
+  } catch(e) {
+    el.className = 'update-notice status-failed visible';
+    el.innerHTML = `
+      <strong>Install failed</strong>
+      <span>${esc(e.message || 'Unable to launch installer.')}</span>
+      <button class="update-download" id="update-install-btn" onclick="installUpdate()">Retry install</button>
+      <button class="update-download" id="update-reveal-btn" onclick="revealInstaller()">Show installer in Explorer</button>
+      <button class="update-download" id="update-download-btn" onclick="downloadUpdate()">Download again</button>
+      <button class="dismiss-update" data-version="${esc((currentUpdateStatus && currentUpdateStatus.latest_version) || '')}" onclick="dismissUpdate(this.dataset.version)">Dismiss</button>`;
+  }
+}
+
+async function revealInstaller() {
+  const el = document.getElementById('update-notice');
+  const btn = document.getElementById('update-reveal-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Opening Explorer...';
+  }
+  try {
+    await postJson('/api/updates/reveal-installer', {});
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Shown in Explorer';
+    }
+  } catch(e) {
+    if (el) {
+      el.className = 'update-notice status-failed visible';
+      el.innerHTML = `
+        <strong>Could not show installer</strong>
+        <span>${esc(e.message || 'The downloaded installer could not be revealed.')}</span>
+        <button class="update-download" id="update-download-btn" onclick="downloadUpdate()">Download again</button>
+        <button class="dismiss-update" data-version="${esc((currentUpdateStatus && currentUpdateStatus.latest_version) || '')}" onclick="dismissUpdate(this.dataset.version)">Dismiss</button>`;
+    }
+  }
+}
+
+async function applyPortableUpdate() {
+  const el = document.getElementById('update-notice');
+  if (!currentUpdateStatus || !el) return;
+  const version = currentUpdateStatus.latest_version || 'this update';
+  const msg = [
+    `Apply portable update ${version} on exit?`,
+    '',
+    'Bazaar Coach will close, replace files in your portable folder, and relaunch.',
+  ].join('\n');
+  if (!window.confirm(msg)) return;
+  const btn = document.getElementById('update-portable-apply-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Preparing swap...';
+  }
+  try {
+    await postJson('/api/updates/apply-portable', { shutdown_first: true });
+    el.className = 'update-notice status-warning visible';
+    el.innerHTML = `
+      <strong>Portable update scheduled</strong>
+      <span>Applying ${esc(version)} when Bazaar Coach closes.</span>`;
+  } catch (e) {
+    el.className = 'update-notice status-failed visible';
+    el.innerHTML = `
+      <strong>Portable apply failed</strong>
+      <span>${esc(e.message || 'Unable to apply portable update.')}</span>
+      <button class="update-download" id="update-portable-apply-btn" onclick="applyPortableUpdate()">Retry</button>`;
+  }
+}
+
+async function relaunchUpdatedApp() {
+  const el = document.getElementById('update-notice');
+  const btn = document.getElementById('update-relaunch-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Launching...';
+  }
+  try {
+    const target = (currentUpdateStatus && currentUpdateStatus.last_install
+      && currentUpdateStatus.last_install.target_version)
+      || (currentUpdateStatus && currentUpdateStatus.latest_version)
+      || null;
+    await postJson('/api/updates/relaunch', target ? { target_version: target } : {});
+    if (el) {
+      el.className = 'update-notice status-updated visible';
+      el.innerHTML = `
+        <strong>Opened updated Bazaar Coach</strong>
+        ${multiVersionInstallCopy(currentUpdateStatus)}`;
+    }
+  } catch(e) {
+    if (el) {
+      el.className = 'update-notice status-failed visible';
+      el.innerHTML = `
+        <strong>Could not open updated app</strong>
+        <span>${esc(e.message || 'Installed build was not found.')}</span>
+        <button class="update-secondary" id="update-relaunch-btn" onclick="relaunchUpdatedApp()">Retry</button>`;
+    }
   }
 }
 
