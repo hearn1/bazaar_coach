@@ -100,8 +100,9 @@ def launch_capture_mono(process_name: str = "TheBazaar.exe") -> subprocess.Popen
     env["PYTHONIOENCODING"] = "utf-8"
     env.setdefault("PYTHONUTF8", "1")
     if app_paths.is_packaged():
+        cli_exe = Path(sys.executable).parent / "BazaarCoachCLI.exe"
         cmd = [
-            sys.executable,
+            str(cli_exe),
             "--capture-mono-worker",
             "--db",
             "--wait",
@@ -128,6 +129,8 @@ def launch_capture_mono(process_name: str = "TheBazaar.exe") -> subprocess.Popen
         bufsize=1,
         env=env,
     )
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     if os.name == "nt":
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     proc = subprocess.Popen(cmd, **popen_kwargs)
