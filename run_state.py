@@ -20,6 +20,7 @@ Combat outcomes:
 """
 
 import json
+import threading
 
 import db
 import card_cache
@@ -36,6 +37,11 @@ class RunState:
         self.log_path = log_path
         self.on_run_complete = on_run_complete
         self.emit_completion_callbacks = True
+        # Serializes process() and force_end() so an out-of-thread force-end
+        # request (from the Flask request thread) cannot race with the watcher
+        # thread mid-event. Reentrant because force_end() calls _on_run_end()
+        # which the watcher also reaches through process().
+        self._lock = threading.RLock()
         self._reset_run_state()
 
     def _reset_run_state(self):
@@ -79,55 +85,72 @@ class RunState:
     # ── Public entry point ────────────────────────────────────────────────────
 
     def process(self, event: dict):
-        etype = event.get("event")
-        ts = event.get("ts", "")
+        with self._lock:
+            etype = event.get("event")
+            ts = event.get("ts", "")
 
-        if etype == "run_start":
-            self._on_run_start(ts)
-        elif etype == "session_id":
-            self._on_session_id(ts, event["session_id"])
-        elif etype == "account_id":
-            self.account_id = event["account_id"]
-            self._try_init_run(ts)
-        elif etype == "hero":
-            self.hero = event["hero"]
-            self._try_init_run(ts)
-        elif etype == "state_change":
-            self._on_state_change(event)
-        elif etype == "cards_dealt":
-            self._on_cards_offered(event["instance_ids"])
-        elif etype == "cards_spawned":
-            self._on_cards_spawned(event["instance_ids"])
-        elif etype == "card_transformed":
-            self._on_card_transformed(event)
-        elif etype == "card_purchased":
-            self._on_card_purchased(event)
-        elif etype == "cards_disposed":
-            self._on_cards_disposed(event)
-        elif etype == "card_sold":
-            self._on_card_sold(event)
-        elif etype == "command_sent":
-            self._on_command_sent(event)
-        elif etype == "reroll":
-            if (
-                self._in_shop
-                and self.current_state == "EncounterState"
-                and self._encounter_mode == "shop"
-            ):
-                self._shop.on_reroll()
-                self._finalize_shop_page(ts)
-        elif etype == "skill_selected":
-            self._on_skill_selected(event)
-        elif etype == "card_moved":
-            self._on_card_moved(event)
-        elif etype == "combat_start":
-            self.combat_start_ts = ts
-        elif etype == "combat_complete":
-            self._on_combat_complete(event)
-        elif etype == "run_defeat":
-            self._on_run_end(ts, "defeat")
-        elif etype == "run_victory":
-            self._on_run_end(ts, "victory")
+            if etype == "run_start":
+                self._on_run_start(ts)
+            elif etype == "session_id":
+                self._on_session_id(ts, event["session_id"])
+            elif etype == "account_id":
+                self.account_id = event["account_id"]
+                self._try_init_run(ts)
+            elif etype == "hero":
+                self.hero = event["hero"]
+                self._try_init_run(ts)
+            elif etype == "state_change":
+                self._on_state_change(event)
+            elif etype == "cards_dealt":
+                self._on_cards_offered(event["instance_ids"])
+            elif etype == "cards_spawned":
+                self._on_cards_spawned(event["instance_ids"])
+            elif etype == "card_transformed":
+                self._on_card_transformed(event)
+            elif etype == "card_purchased":
+                self._on_card_purchased(event)
+            elif etype == "cards_disposed":
+                self._on_cards_disposed(event)
+            elif etype == "card_sold":
+                self._on_card_sold(event)
+            elif etype == "command_sent":
+                self._on_command_sent(event)
+            elif etype == "reroll":
+                if (
+                    self._in_shop
+                    and self.current_state == "EncounterState"
+                    and self._encounter_mode == "shop"
+                ):
+                    self._shop.on_reroll()
+                    self._finalize_shop_page(ts)
+            elif etype == "skill_selected":
+                self._on_skill_selected(event)
+            elif etype == "card_moved":
+                self._on_card_moved(event)
+            elif etype == "combat_start":
+                self.combat_start_ts = ts
+            elif etype == "combat_complete":
+                self._on_combat_complete(event)
+            elif etype == "run_defeat":
+                self._on_run_end(ts, "defeat")
+            elif etype == "run_victory":
+                self._on_run_end(ts, "victory")
+
+    def force_end(self, ts: str) -> bool:
+        """Externally requested end of the active run.
+
+        Called from the Flask request thread when the player clicks the
+        overlay's "End Run" button. Idempotent: returns False if no run is
+        open or the current run is already closed. Acquires the same lock
+        process() uses so the in-memory _run_closed flag and the DB row
+        flip together with no risk of a watcher event slipping in between.
+        """
+        with self._lock:
+            if self.run_id is None or self._run_closed:
+                return False
+            print(f"[RunState] Force-end requested for run {self.run_id}")
+            self._on_run_end(ts, "force_ended")
+            return True
 
     # ── Internal handlers ─────────────────────────────────────────────────────
 
