@@ -249,8 +249,13 @@ def _emit_shop_visit_missed_entry(
     committed_arch: Optional[dict],
     late_archetypes: list[dict],
     build_data: Optional[dict] = None,
-) -> Optional[dict]:
-    """Return one 'missed' review row for a shop-close, or None."""
+) -> list[dict]:
+    """Return the 'missed' review rows for a shop-close.
+
+    Archetype-aware path emits at most one (best-ranked) match.
+    Fallback path emits one row per economy/utility leftover so early-run shops
+    with multiple build-relevant pickups all surface in the Review tab.
+    """
     focused_archetypes = [committed_arch] if committed_arch else _enabled_review_archetypes(
         board_names, late_archetypes,
     )
@@ -265,7 +270,7 @@ def _emit_shop_visit_missed_entry(
     dtype = anchor_decision.get("decision_type") or ""
 
     if missed_match:
-        return {
+        return [{
             "decision_seq": anchor_decision["decision_seq"],
             "decision_type": dtype,
             "chosen_name": anchor_decision.get("chosen_name"),
@@ -274,7 +279,7 @@ def _emit_shop_visit_missed_entry(
             "review_build_name": missed_match["arch_name"],
             "review_kind": missed_match["kind"],
             "derived_score_label": "missed",
-        }
+        }]
 
     # Fallback: economy/utility items that don't belong to a scoreable archetype yet.
     economy_names: set[str] = set()
@@ -283,6 +288,7 @@ def _emit_shop_visit_missed_entry(
         economy_names.update(phase_data.get("economy_items", []))
         utility_names.update(phase_data.get("universal_utility_items", []))
 
+    entries: list[dict] = []
     for n in leftover_names:
         if n in economy_names:
             detail = "Economy item — strong pickup regardless of archetype."
@@ -292,7 +298,7 @@ def _emit_shop_visit_missed_entry(
             kind = "utility"
         else:
             continue
-        return {
+        entries.append({
             "decision_seq": anchor_decision["decision_seq"],
             "decision_type": dtype,
             "chosen_name": anchor_decision.get("chosen_name"),
@@ -301,9 +307,9 @@ def _emit_shop_visit_missed_entry(
             "review_build_name": None,
             "review_kind": kind,
             "derived_score_label": "missed",
-        }
+        })
 
-    return None
+    return entries
 
 
 def _select_overlay_review_entry(
@@ -507,12 +513,21 @@ def build_overlay_review_rows(
         anchor_row, anchor_board_names = shop_buffer[-1]
         leftover_names = anchor_row.get("resolved_rejected") or []
         if leftover_names:
-            missed_entry = _emit_shop_visit_missed_entry(
+            missed_entries = _emit_shop_visit_missed_entry(
                 anchor_row, leftover_names, anchor_board_names, committed_arch, late_archetypes,
                 build_data=build_data,
             )
-            if missed_entry:
-                review_rows.append(_attach_image(missed_entry))
+            # Items acquired within the same shop visit (across all buffered buys).
+            # Used to suppress misses where the rejected list somehow includes a
+            # name the player already purchased in this same shop close.
+            shop_acquired = {
+                r.get("chosen_name")
+                for (r, _) in shop_buffer
+                if r.get("chosen_name")
+            }
+            for entry in missed_entries:
+                entry["_shop_visit_acquired"] = shop_acquired
+                review_rows.append(_attach_image(entry))
         shop_buffer = []
         shop_rejected_key = None
 
@@ -556,12 +571,15 @@ def build_overlay_review_rows(
             notes_for_skip = row.get("score_notes") or ""
             leftover_names = extract_skip_relevant_items(notes_for_skip) or row.get("resolved_offered") or []
             if leftover_names:
-                missed_entry = _emit_shop_visit_missed_entry(
+                missed_entries = _emit_shop_visit_missed_entry(
                     row, leftover_names, board_names, committed_arch, late_archetypes,
                     build_data=build_data,
                 )
-                if missed_entry:
-                    review_rows.append(_attach_image(missed_entry))
+                # Skip decisions have no purchase in the same anchor; provide an
+                # empty acquired set so the trailing filter is a no-op for them.
+                for entry in missed_entries:
+                    entry["_shop_visit_acquired"] = set()
+                    review_rows.append(_attach_image(entry))
 
         if row.get("decision_type") in ("item", "companion") and row.get("chosen_id"):
             board[row["chosen_id"]] = row.get("chosen_name") or row["chosen_id"]
@@ -579,21 +597,21 @@ def build_overlay_review_rows(
 
     _flush_buffer()
 
-    # Suppress missed rows for items the player acquired later in the same run.
-    # Covers the case where an item was passed on in a shop but then received as
-    # a free reward (or bought from a subsequent shop) on a later decision.
-    acquired_names = {
-        row.get("chosen_name")
-        for row in resolved_rows
-        if row.get("chosen_name")
-    }
-    review_rows = [
-        r for r in review_rows
-        if not (
+    # Suppress missed rows only when the item was acquired *within the same
+    # shop visit* (anchor decision_seq). A miss in shop A is still legitimate
+    # coaching feedback even if the same item is bought in shop B or arrives as
+    # a free reward later — those acquisitions happen at a different anchor.
+    filtered_rows = []
+    for r in review_rows:
+        shop_acquired = r.pop("_shop_visit_acquired", None)
+        if (
             r.get("derived_score_label") == "missed"
-            and r.get("review_title") in acquired_names
-        )
-    ]
+            and shop_acquired
+            and r.get("review_title") in shop_acquired
+        ):
+            continue
+        filtered_rows.append(r)
+    review_rows = filtered_rows
 
     if review_rows:
         return list(reversed(review_rows))
