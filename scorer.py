@@ -28,7 +28,7 @@ import db
 import card_cache
 from board_state import BoardState
 
-BUILD_GUIDE_DIR = app_paths.bundled_root()
+BUILD_GUIDE_DIR = app_paths.bundled_root() / "builds"
 DEFAULT_HERO = "Karnok"
 
 # Schema versioning — refuse catalogs outside [MIN, MAX] on both ends so an

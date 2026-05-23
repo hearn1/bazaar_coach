@@ -78,7 +78,7 @@ def _is_retryable_response(response: object) -> bool:
 
 
 def _refresh_one(hero: str, filename: str, *, out_dir: Path) -> HeroRefreshResult:
-    url = f"{RAW_BASE_URL}/{filename}"
+    url = f"{RAW_BASE_URL}/builds/{filename}"
     response = None
     retried = False
 

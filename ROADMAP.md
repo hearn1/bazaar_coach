@@ -8,6 +8,18 @@ Status labels:
 - `Partial`: useful foundation exists, but more work is needed.
 - `On Hold`: blocked by an external dependency or prerequisite.
 
+## Triage Queue (2026-05-23)
+
+Prioritized fix order for the open GitHub issues. Ordering principle: infra changes that affect everything else first, then correctness regressions ranked by blast radius, then content/catalog, then tooling. Per-issue root cause + effort lives on each GH issue thread.
+
+1. [#85](https://github.com/hearn1/bazaar_coach/issues/85) — Local vs `.exe` functionality drift. **Infra. Do first** — duplicate `karnok_builds.json` at repo root vs `builds/` means dev and packaged builds load different catalogs, which makes triage of every other bug suspect. Effort: M.
+2. [#83](https://github.com/hearn1/bazaar_coach/issues/83) — PvP/PvE/day wrong on overlay header. `_get_latest_live_snapshot` in `web/overlay_state.py` is unscoped to current run/hero, so stale Mono rows from a prior run bleed into the live header. Effort: M.
+3. [#84](https://github.com/hearn1/bazaar_coach/issues/84) — Leave Run button missing. Likely the same root cause as #83 (prior run never closed → new run shows stale state with `is_active=true`). Verify after #83; layer in a manual "force end" control only if still needed. Effort: S after #83.
+4. [#81](https://github.com/hearn1/bazaar_coach/issues/81) — Universal utility items marked suboptimal when committed. `scorer.score_late_decision` committed-branch never checks `universal_utility_items`/`economy_items`. Surgical scorer fix. Effort: S.
+5. [#77](https://github.com/hearn1/bazaar_coach/issues/77) — Missed items not showing in review tab. `_emit_shop_visit_missed_entry` + the acquired-name suppression filter in `web/review_builder.py` are over-suppressing early-run misses. Do after the scorer/state fixes so fixtures are stable. Effort: M.
+6. [#82](https://github.com/hearn1/bazaar_coach/issues/82) — Night Vision/Chains/Fairy Circle build display is wrong. Needs live run data to reproduce; likely a catalog content fix that should ride on #85's consolidation. Effort: M.
+7. [#86](https://github.com/hearn1/bazaar_coach/issues/86) — Release script. Pure feature. Defer until the bug backlog above ships. Effort: M.
+
 ## Release Todo
 
 ### P1 — Keep support-command windows open

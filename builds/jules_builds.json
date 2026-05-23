@@ -28,7 +28,74 @@
     "late": {
       "day_range": "Day 7-13",
       "description": "Placeholder late-phase description for the Jules PoC seed.",
-      "archetypes": []
+      "archetypes": [
+        {
+          "name": "Zarlic / Spice Rack / Instant Noodles",
+          "phase": "late",
+          "core_items": [
+            "Instant Noodles",
+            "Spice Rack"
+          ],
+          "carry_items": [
+            "Zarlic"
+          ],
+          "support_items": [
+            "Basket",
+            "Black Pepper",
+            "Caviar",
+            "Meat Tenderizer",
+            "Serving Platter",
+            "Sorbet",
+            "Spatula"
+          ]
+        },
+        {
+          "name": "Freezer",
+          "phase": "late",
+          "carry_items": [],
+          "support_items": [
+            "Blender",
+            "Walk-In Freezer"
+          ]
+        },
+        {
+          "name": "Farmer's Market / Bread Knife / Pasta",
+          "phase": "late",
+          "core_items": [
+            "Bread Knife",
+            "Farmer's Market",
+            "Pasta"
+          ],
+          "carry_items": [],
+          "support_items": [
+            "Veggie Garden"
+          ]
+        },
+        {
+          "name": "Zarlic / Meat Tenderizer / Sorbet",
+          "phase": "late",
+          "carry_items": [],
+          "support_items": [
+            "Froyo Cart"
+          ]
+        },
+        {
+          "name": "Farmer's Market",
+          "phase": "late",
+          "carry_items": [],
+          "support_items": [
+            "Oven"
+          ]
+        },
+        {
+          "name": "Spice Rack",
+          "phase": "late",
+          "carry_items": [],
+          "support_items": [
+            "Pizza"
+          ]
+        }
+      ]
     }
   }
 }

@@ -69,11 +69,22 @@ def test_pyinstaller_spec_bundles_build_catalogs():
     root = app_paths.repo_dir()
     spec = (root / "packaging" / "pyinstaller" / "BazaarCoach.spec").read_text()
 
-    assert '"dooley_builds.json"' in spec
-    assert '"karnok_builds.json"' in spec
-    assert '"mak_builds.json"' in spec
-    assert '"pygmalien_builds.json"' in spec
-    assert '"vanessa_builds.json"' in spec
+    # Issue #85: catalogs must ship from builds/ subdir into _MEIPASS/builds/,
+    # not from the repo root.
+    for hero_file in (
+        "dooley_builds.json",
+        "jules_builds.json",
+        "karnok_builds.json",
+        "mak_builds.json",
+        "pygmalien_builds.json",
+        "stelle_builds.json",
+        "vanessa_builds.json",
+        "builds_schema.json",
+    ):
+        assert f'ROOT / "builds" / "{hero_file}"' in spec, hero_file
+        assert f'(str(ROOT / "{hero_file}")' not in spec, hero_file
+    # Destination tuple value must be the "builds" subdir, not "." root.
+    assert '"builds_schema.json"), "builds")' in spec
 
 
 def test_pyinstaller_spec_is_windowed_after_null_stream_coverage():
@@ -221,12 +232,48 @@ def test_gitignore_keeps_generated_artifacts_local_and_sources_trackable():
         "packaging/",
         "packaging/pyinstaller/build_portable.ps1",
         "packaging/pyinstaller/requirements-build.txt",
-        "dooley_builds.json",
-        "karnok_builds.json",
-        "mak_builds.json",
-        "pygmalien_builds.json",
-        "vanessa_builds.json",
+        "builds/dooley_builds.json",
+        "builds/karnok_builds.json",
+        "builds/mak_builds.json",
+        "builds/pygmalien_builds.json",
+        "builds/vanessa_builds.json",
     }
 
     assert expected_ignored <= ignored_patterns
     assert ignored_patterns.isdisjoint(expected_trackable)
+
+
+def test_no_stray_root_catalogs():
+    """Issue #85: catalogs live in builds/ only; root duplicates silently shadow."""
+    import scorer as _scorer
+
+    root = app_paths.repo_dir()
+    strays = []
+    for filename in list(_scorer.CATALOG_FILENAMES.values()) + ["builds_schema.json"]:
+        if (root / filename).exists():
+            strays.append(filename)
+    assert not strays, (
+        f"Found stray root-level catalog files: {strays}. "
+        "Canonical location is builds/. Move or delete them."
+    )
+
+
+def test_doctor_flags_stray_root_catalog(tmp_path, monkeypatch):
+    """doctor.find_stray_root_catalogs reports filenames that drifted back to root."""
+    import doctor
+
+    fake_root = tmp_path
+    (fake_root / "builds").mkdir()
+    (fake_root / "karnok_builds.json").write_text("{}", encoding="utf-8")
+    (fake_root / "builds_schema.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(app_paths, "repo_dir", lambda: fake_root)
+    monkeypatch.setattr(app_paths, "is_packaged", lambda: False)
+
+    strays = doctor.find_stray_root_catalogs()
+    assert "karnok_builds.json" in strays
+    assert "builds_schema.json" in strays
+
+    # Packaged builds skip the check — _MEIPASS layout is spec-controlled.
+    monkeypatch.setattr(app_paths, "is_packaged", lambda: True)
+    assert doctor.find_stray_root_catalogs() == []
