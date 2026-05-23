@@ -1030,6 +1030,18 @@ def _is_catalog_item(item_name: str, builds: dict) -> bool:
     return False
 
 
+def _universal_or_economy_match(item_name: str, builds: dict) -> Optional[str]:
+    """Return 'utility' / 'economy' if item is in any phase's universal lists, else None."""
+    if not item_name:
+        return None
+    for phase_data in builds.get("game_phases", {}).values():
+        if item_name in phase_data.get("universal_utility_items", []):
+            return "utility"
+        if item_name in phase_data.get("economy_items", []):
+            return "economy"
+    return None
+
+
 def score_early_decision(item_name: str, builds: dict, offered_names: list) -> tuple[str, str]:
     """Score a decision in the early phase."""
     utility = builds["game_phases"]["early"]["universal_utility_items"]
@@ -1063,6 +1075,12 @@ def score_early_mid_decision(
     archetypes = builds["game_phases"]["early_mid"]["archetypes"]
     late_archetypes = builds["game_phases"]["late"]["archetypes"]
     tier = get_item_tier(builds, item_name)
+
+    kind = _universal_or_economy_match(item_name, builds)
+    if kind == "utility":
+        return "good", "Universal utility — strong pickup regardless of archetype."
+    if kind == "economy":
+        return "good", "Economy item — strong pickup regardless of archetype."
 
     matching = []
     for arch in archetypes:
@@ -1168,6 +1186,12 @@ def score_late_decision(
         if item_name in support:
             return "good", f"Support item for committed build ({arch_name})."
 
+        kind = _universal_or_economy_match(item_name, builds)
+        if kind == "utility":
+            return "good", "Universal utility — strong pickup regardless of archetype."
+        if kind == "economy":
+            return "good", "Economy item — strong pickup regardless of archetype."
+
         # Check if it fits any other late archetype as a pivot signal
         other_matches = []
         for arch in late_archetypes:
@@ -1190,6 +1214,12 @@ def score_late_decision(
         )
 
     else:
+        kind = _universal_or_economy_match(item_name, builds)
+        if kind == "utility":
+            return "good", "Universal utility — strong pickup regardless of archetype."
+        if kind == "economy":
+            return "good", "Economy item — strong pickup regardless of archetype."
+
         # Not yet committed — score against all late archetypes
         late_matches = _rank_late_item_matches(
             item_name,
