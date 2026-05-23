@@ -132,6 +132,12 @@ class RunState:
     # ── Internal handlers ─────────────────────────────────────────────────────
 
     def _on_run_start(self, ts: str):
+        if self.run_id is not None and not self._run_closed:
+            print(
+                f"[RunState] run_start while run {self.run_id} still open; "
+                "closing prior run as interrupted."
+            )
+            self._on_run_end(ts, "interrupted")
         saved_account = self.account_id
         saved_hero = self.hero
         self._reset_run_state()

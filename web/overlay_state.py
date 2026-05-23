@@ -239,8 +239,26 @@ def _get_next_run_first_api_state_id(conn, run: dict, after_id: int) -> Optional
     return row["next_id"] if row and row["next_id"] is not None else None
 
 
-def _get_latest_live_snapshot(conn) -> Optional[dict]:
-    """Return the most recent in-progress Mono snapshot row."""
+def _get_latest_live_snapshot(conn, run: dict) -> Optional[dict]:
+    """Return the most recent in-progress Mono snapshot row for ``run``.
+
+    Scoped via ``decisions.api_game_state_id`` bounds (same pattern as
+    ``_get_run_mono_state_rows``) so a prior run's stale snapshots never
+    bleed into the current run's overlay header.
+    """
+    bounds = conn.execute(
+        """
+        SELECT MIN(api_game_state_id) AS first_id
+        FROM decisions
+        WHERE run_id = ? AND api_game_state_id IS NOT NULL
+        """,
+        (run["id"],),
+    ).fetchone()
+    if not bounds or bounds["first_id"] is None:
+        return None
+    start_id = bounds["first_id"]
+    next_run_first_id = _get_next_run_first_api_state_id(conn, run, start_id)
+
     prestige_expr = _prestige_select_expr(conn)
     row = conn.execute(
         f"""
@@ -248,11 +266,15 @@ def _get_latest_live_snapshot(conn) -> Optional[dict]:
                victories, defeats, run_state, captured_at,
                {prestige_expr}
         FROM api_game_states
-        WHERE run_state IS NOT NULL
+        WHERE id >= ?
+          AND (? IS NULL OR id < ?)
+          AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
+          AND run_state IS NOT NULL
           AND run_state NOT IN ('EndRunDefeat', 'EndRunVictory')
         ORDER BY id DESC
         LIMIT 1
-        """
+        """,
+        (start_id, next_run_first_id, next_run_first_id, run.get("hero"), run.get("hero")),
     ).fetchone()
     return dict(row) if row else None
 
@@ -425,7 +447,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
     snapshot_source = "none"
 
     if is_active:
-        live_snap = _get_latest_live_snapshot(conn)
+        live_snap = _get_latest_live_snapshot(conn, run)
         if live_snap:
             current_day = live_snap.get("day")
             current_hour = live_snap.get("hour")
