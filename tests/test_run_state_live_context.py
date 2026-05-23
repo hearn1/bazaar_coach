@@ -107,3 +107,53 @@ def test_run_state_decision_insert_includes_live_context(tmp_path, monkeypatch):
     assert scored_decision["phase_actual"] == "late"
     assert json.loads(scored_decision["offered_names"]) == ["Cool Item", "Warm Item"]
 
+
+def test_on_run_start_closes_prior_open_run(tmp_path, monkeypatch):
+    """A second run_start within the same session must close the prior open run.
+
+    Regression for #83: when a new run begins without an EndRun event for the
+    prior one, the prior runs row was left with ``outcome IS NULL`` and its
+    Mono trail bled into the new run's overlay header.
+    """
+    _point_db_at(tmp_path, monkeypatch)
+    db.init_db()
+    monkeypatch.setattr(run_state._scorer, "LiveScorer", RecordingLiveScorer)
+    RecordingLiveScorer.calls = []
+
+    close_calls: list[tuple[int, str, str]] = []
+    real_close_run = db.close_run
+
+    def recording_close_run(run_id, ended_at, outcome):
+        close_calls.append((run_id, ended_at, outcome))
+        return real_close_run(run_id, ended_at, outcome)
+
+    monkeypatch.setattr(db, "close_run", recording_close_run)
+
+    state = RunState("Player.log")
+    state.process({"event": "run_start", "ts": "10:00"})
+    state.process({"event": "session_id", "ts": "10:00", "session_id": "session-1"})
+    state.process({"event": "account_id", "ts": "10:00", "account_id": "account-1"})
+    state.process({"event": "hero", "ts": "10:00", "hero": "Karnok"})
+    first_run_id = state.run_id
+    assert first_run_id is not None
+    assert not close_calls, "no run should be closed yet"
+
+    # Second run_start arrives without a session change (game started a new run
+    # within the same play session). The prior run must be closed defensively.
+    state.process({"event": "run_start", "ts": "10:30"})
+
+    assert close_calls == [(first_run_id, "10:30", "interrupted")]
+    assert state.run_id is None
+    assert state.hero == "Karnok"  # carried over by _on_run_start
+    db.flush()
+
+    conn = sqlite3.connect(tmp_path / "bazaar_runs.db")
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT outcome, ended_at FROM runs WHERE id = ?", (first_run_id,)
+        ).fetchone()
+        assert row["outcome"] == "interrupted"
+        assert row["ended_at"] == "10:30"
+    finally:
+        conn.close()
