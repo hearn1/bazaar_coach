@@ -10,14 +10,14 @@ from pathlib import Path
 ROOT = Path(SPECPATH).parents[1]
 
 datas = [
-    (str(ROOT / "dooley_builds.json"), "."),
-    (str(ROOT / "jules_builds.json"), "."),
-    (str(ROOT / "karnok_builds.json"), "."),
-    (str(ROOT / "mak_builds.json"), "."),
-    (str(ROOT / "pygmalien_builds.json"), "."),
-    (str(ROOT / "stelle_builds.json"), "."),
-    (str(ROOT / "vanessa_builds.json"), "."),
-    (str(ROOT / "builds_schema.json"), "."),
+    (str(ROOT / "builds" / "dooley_builds.json"), "builds"),
+    (str(ROOT / "builds" / "jules_builds.json"), "builds"),
+    (str(ROOT / "builds" / "karnok_builds.json"), "builds"),
+    (str(ROOT / "builds" / "mak_builds.json"), "builds"),
+    (str(ROOT / "builds" / "pygmalien_builds.json"), "builds"),
+    (str(ROOT / "builds" / "stelle_builds.json"), "builds"),
+    (str(ROOT / "builds" / "vanessa_builds.json"), "builds"),
+    (str(ROOT / "builds" / "builds_schema.json"), "builds"),
     (str(ROOT / "capture_mono.py"), "."),
     (str(ROOT / "README.md"), "."),
     (str(ROOT / "ROADMAP.md"), "."),

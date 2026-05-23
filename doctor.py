@@ -258,6 +258,21 @@ def collect_build_catalog_sources() -> dict:
     }
 
 
+def find_stray_root_catalogs() -> list[str]:
+    """Return any catalog/schema files that drifted back to the repo root.
+
+    The canonical location is ``builds/``; root-level copies would silently
+    shadow the bundled tier on dev installs (see issue #85). Always returns
+    an empty list when running from a frozen build — ``_MEIPASS`` layout is
+    spec-controlled, not user-edited.
+    """
+    if app_paths.is_packaged():
+        return []
+    root = app_paths.repo_dir()
+    expected = sorted(scorer.CATALOG_FILENAMES.values()) + ["builds_schema.json"]
+    return [name for name in expected if (root / name).exists()]
+
+
 _WEBVIEW2_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 _WEBVIEW2_SUBKEY = rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2_GUID}"
 _WEBVIEW2_SUBKEY_WOW = rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2_GUID}"
@@ -409,6 +424,25 @@ def collect_doctor_report() -> dict:
         "; ".join(catalog_parts),
         **build_catalogs,
     ))
+
+    stray_catalogs = find_stray_root_catalogs()
+    if stray_catalogs:
+        checks.append(_result(
+            "build catalogs root layout",
+            "fail",
+            (
+                f"Stray catalog file(s) at repo root: {', '.join(stray_catalogs)}. "
+                "Canonical location is builds/. Root copies shadow the bundled tier; "
+                "delete them or move into builds/."
+            ),
+            stray=stray_catalogs,
+        ))
+    else:
+        checks.append(_result(
+            "build catalogs root layout",
+            "ok",
+            "No stray root-level *_builds.json or builds_schema.json",
+        ))
 
     log_path = find_player_log_path()
     checks.append(_result(

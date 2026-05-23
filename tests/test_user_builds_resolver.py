@@ -166,7 +166,7 @@ def test_user_catalog_schema_fail_falls_through(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     # Copy the real schema so validation actually runs.
-    real_schema = Path(__file__).resolve().parents[1] / "builds_schema.json"
+    real_schema = Path(__file__).resolve().parents[1] / "builds" / "builds_schema.json"
     (bundled_dir / "builds_schema.json").write_text(
         real_schema.read_text(encoding="utf-8"),
         encoding="utf-8",
