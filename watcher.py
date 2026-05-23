@@ -197,6 +197,22 @@ def run_watcher(log_path: Optional[Path] = None, parse_only: bool = False):
         on_run_complete=build_run_complete_handler(),
     )
 
+    # Wire the overlay's "End Run" POST handler to RunState.force_end so the
+    # in-memory _run_closed flag flips in lock-step with the DB row. Guarded
+    # import keeps watcher.py --parse-only and other diagnostic uses working
+    # in environments where Flask isn't importable.
+    try:
+        from web.server import set_force_end_callback
+
+        def _force_end_bridge(rid: int, ts: str) -> bool:
+            if state.run_id != rid:
+                return False
+            return state.force_end(ts)
+
+        set_force_end_callback(_force_end_bridge)
+    except Exception as exc:
+        print(f"[Watcher] Could not register force-end callback: {exc}")
+
     if parse_only:
         parse_existing(log_path, state)
     else:

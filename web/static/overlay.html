@@ -173,6 +173,16 @@
       color: #fff0c7;
     }
 
+    .header-action-warn {
+      border-color: rgba(214, 96, 96, 0.32);
+      color: #f3c0c0;
+    }
+
+    .header-action-warn:hover {
+      border-color: rgba(214, 96, 96, 0.55);
+      color: #ffe1e1;
+    }
+
     .header-quit {
       position: absolute;
       top: 8px;
@@ -1705,6 +1715,12 @@
       if (outcome === "defeat") {
         return { label: "DEFEAT", tone: "defeat" };
       }
+      if (outcome === "force_ended") {
+        return { label: "ENDED", tone: "defeat" };
+      }
+      if (outcome === "interrupted") {
+        return { label: "INTERRUPTED", tone: "defeat" };
+      }
       return { label: "LIVE", tone: "live" };
     }
 
@@ -1827,6 +1843,28 @@
       localStorage.setItem(DISMISSED_RUN_KEY, String(overlayState.run_id));
       contentScrollTop = 0;
       render();
+    }
+
+    // Manual recovery for issue #84: when the game crashes or the player
+    // Alt-F4s mid-run, no EndRun event ever arrives and the overlay stays
+    // stuck on a live run. POST /api/runs/<id>/force-end closes the row as
+    // "force_ended"; on the next poll is_active flips to false and the
+    // existing "Leave Run" dismiss button takes over.
+    async function endActiveRun() {
+      if (!overlayState?.is_active || !overlayState?.run_id) return;
+      if (!window.confirm("End this run now? It will be marked as force-ended.")) return;
+      try {
+        const resp = await fetch(`/api/runs/${overlayState.run_id}/force-end`, { method: "POST" });
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => "");
+          console.error("Force-end failed", resp.status, body);
+        }
+      } catch (e) {
+        console.error("Force-end network error", e);
+      }
+      // Refresh immediately so the user sees the state flip without waiting
+      // for the next poll interval.
+      fetchState();
     }
 
     function reopenCompletedRun() {
@@ -2162,6 +2200,10 @@
           : `Run #${escapeHtml(fmtMaybe(state.run_id))} | ${escapeHtml(fmtMaybe(state.hero, "Unknown hero"))}`;
       const runPill = getRunPillMeta(state, idle);
       const canLeaveCompletedRun = isCompletedRun(state) && !idle;
+      // Show "End Run" during active runs that have at least one tracked
+      // decision — escape hatch for issue #84 when the game crashes or
+      // Alt-F4s mid-run and the EndRun event never arrives.
+      const canEndActiveRun = !idle && state?.is_active === true && hasTrackedRun(state) && hasTrackedDecisions(state);
       return `
         <div class="header" data-drag-header="true">
           <div class="header-top">
@@ -2176,6 +2218,7 @@
             </div>
             <div class="header-actions">
               <button class="header-action" type="button" data-open-dashboard="true" title="Open dashboard to edit your build catalog">Edit Builds</button>
+              ${canEndActiveRun ? `<button class="header-action header-action-warn" type="button" data-end-run="true" title="Mark this run as force-ended (use if the game crashed mid-run)">End Run</button>` : ""}
               ${canLeaveCompletedRun ? `<button class="header-action" type="button" data-dismiss-run="true">Leave Run</button>` : ""}
             </div>
             <button class="header-quit" type="button" title="Close tracker" onclick="window.pywebview.api.request_shutdown()">×</button>
@@ -3094,6 +3137,13 @@
       if (dismissRun && root.contains(dismissRun)) {
         event.preventDefault();
         dismissCompletedRun();
+        return;
+      }
+
+      const endRun = event.target.closest("[data-end-run='true']");
+      if (endRun && root.contains(endRun)) {
+        event.preventDefault();
+        endActiveRun();
         return;
       }
 

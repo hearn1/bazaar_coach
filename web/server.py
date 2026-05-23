@@ -62,6 +62,11 @@ from web.card_images import IMAGE_DIR as CARD_IMAGE_DIR, lookup_image_url
 DEFAULT_PORT = 5555
 DB_PATH: Optional[Path] = None
 _shutdown_callback: Optional[Callable] = None
+# Registered by the watcher so /api/runs/<id>/force-end can flip RunState's
+# in-memory _run_closed flag in lock-step with the DB write. Signature:
+# (run_id: int, ts_iso: str) -> bool, where True means the request actually
+# closed the run (False means it was already closed or did not match).
+_force_end_callback: Optional[Callable[[int, str], bool]] = None
 _build_refresh_lock = threading.Lock()
 _build_refresh_state = {
     "running": False,
@@ -1026,17 +1031,91 @@ def api_control_shutdown():
     return jsonify({"ok": False, "error": "no shutdown handler registered"}), 500
 
 
+@app.route("/api/runs/<int:run_id>/force-end", methods=["POST"])
+def api_force_end_run(run_id: int):
+    """
+    Manually end an active run from the overlay (issue #84).
+
+    Used when the game crashes, the player Alt-F4s mid-run, or the Mono
+    capture misses the terminal EndRun event, leaving the overlay stuck on
+    a live run with no terminal event ever arriving. The overlay's existing
+    "Leave Run" dismiss button is gated on is_active === false, so without
+    this route there is no recoverable path back to idle.
+
+    Behavior:
+      - 404 if no runs row matches run_id.
+      - 200 {"ok": True, "already_ended": True} if outcome IS NOT NULL
+        (idempotent; the second click after a successful close is harmless).
+      - Otherwise calls the registered force-end callback (signature
+        (run_id, ts_iso) -> bool) so RunState's in-memory _run_closed flag
+        flips together with the DB row. If no callback is registered (e.g.
+        the dashboard is launched without the watcher), falls back to a
+        direct db.close_run + db.flush so the route is still useful in
+        diagnostic mode. The fallback case includes "fallback": True in
+        the response so callers can tell which path ran.
+    """
+    import db
+
+    ts_iso = datetime.now(timezone.utc).isoformat()
+
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT id, outcome FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return jsonify({"ok": False, "error": "run not found"}), 404
+    if row["outcome"] is not None:
+        return jsonify({"ok": True, "already_ended": True, "outcome": row["outcome"]})
+
+    if _force_end_callback is not None:
+        try:
+            closed = bool(_force_end_callback(run_id, ts_iso))
+        except Exception as exc:
+            traceback.print_exc()
+            return jsonify({"ok": False, "error": f"callback failed: {exc}"}), 500
+        if closed:
+            return jsonify({"ok": True, "outcome": "force_ended", "ts": ts_iso})
+        # Callback declined (e.g. the watcher's RunState has moved on to a
+        # different run since the overlay rendered). Fall through to the
+        # direct-DB path so the user's intent still lands.
+
+    db.close_run(run_id, ts_iso, "force_ended")
+    db.flush()
+    return jsonify({
+        "ok": True,
+        "outcome": "force_ended",
+        "ts": ts_iso,
+        "fallback": True,
+    })
+
+
 # ── Server lifecycle ──────────────────────────────────────────────────────────
 
 def set_shutdown_callback(cb: Callable) -> None:
     """
     Register a callback to be invoked when /api/control/shutdown is posted.
-    
+
     Args:
         cb: A callable that initiates shutdown (e.g., shutdown_event.set).
     """
     global _shutdown_callback
     _shutdown_callback = cb
+
+
+def set_force_end_callback(cb: Optional[Callable[[int, str], bool]]) -> None:
+    """
+    Register the callback that /api/runs/<id>/force-end will invoke.
+
+    The watcher registers a lambda that delegates to RunState.force_end so
+    the in-memory run state and the DB row close in lock-step. Pass None
+    to clear (used by tests for isolation).
+    """
+    global _force_end_callback
+    _force_end_callback = cb
 
 
 def _run_production_server(port: int):
