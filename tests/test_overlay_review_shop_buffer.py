@@ -171,20 +171,27 @@ def test_economy_item_in_rejected_emits_missed_row(monkeypatch, tmp_path):
     assert missed[0]["review_kind"] == "economy"
 
 
-def test_missed_row_suppressed_when_item_acquired_later(monkeypatch, tmp_path):
-    """Missed row is suppressed if the item was acquired on a subsequent decision."""
+def test_missed_row_surfaces_when_acquired_at_different_anchor(monkeypatch, tmp_path):
+    """Miss in shop A survives even if the item is acquired at a later anchor.
+
+    The acquired-name filter is scoped per-shop-visit (issue #77): only same-shop
+    purchases suppress the miss. A free-reward or later-shop acquisition is a
+    different anchor and must not erase the earlier coaching feedback.
+    """
     decisions = [
-        # Shop: bought Tinderbox, passed on Hunter's Sled → missed row would fire at flush.
+        # Shop: bought Tinderbox, passed on Hunter's Sled → missed row fires at flush.
         _make_decision(38, "item", chosen="Tinderbox", rejected=["Hunter's Sled"],
                        offered=["Tinderbox", "Hunter's Sled"]),
-        # Free reward: Hunter's Sled received immediately after.
+        # Free reward (different anchor): Hunter's Sled received immediately after.
         _make_decision(39, "free_reward", chosen="Hunter's Sled",
                        offered=["Hunter's Sled"]),
     ]
     rows = _run(monkeypatch, tmp_path, decisions, pick_fn=_pick_for_names("Hunter's Sled"))
 
     missed = [r for r in rows if r["derived_score_label"] == "missed"]
-    assert len(missed) == 0
+    assert len(missed) == 1
+    assert missed[0]["decision_seq"] == 38
+    assert missed[0]["review_title"] == "Hunter's Sled"
 
 
 def test_skip_with_relevant_offered_emits_one_missed_row(monkeypatch, tmp_path):
