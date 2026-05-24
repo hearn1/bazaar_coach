@@ -45,6 +45,13 @@ Dashboard: `http://127.0.0.1:5555` (`DEFAULT_WEB_PORT` in `coach.py`). Each sess
 
 Auto-detected Player.log: `C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log`. Project is Windows-targeted at runtime; `frida`, `watchdog`, `pywebview` are unpinned in `requirements.txt` because they're Windows-venv- or game-build-dependent.
 
+## Files to skip unless directly relevant
+
+- `web/static/index.html`, `web/static/overlay.html` — large self-contained HTML with inline CSS+JS. Read only when changing the dashboard or overlay UI.
+- `<hero>_builds.json` under `builds/` — large data files. Grep for specific items; don't read whole.
+- `capture_mono.py` lines 49-2376 (or `capture_mono_agent.js` after #107) — embedded Frida JS agent. Read only when working on Mono hooks themselves.
+- `tests/`, `packaging/`, `dist/`, `captures/`, `logs/`, `venv312/` — generated, packaging, or runtime artifacts.
+
 ## Architecture
 
 ```
