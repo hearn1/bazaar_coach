@@ -42,57 +42,30 @@ def _prestige_select_expr(conn) -> str:
     return "NULL AS prestige"
 
 
-def _get_pve_record(conn, run_id: int, run: Optional[dict] = None) -> tuple[int, int]:
-    if run is not None:
-        mono = _get_mono_record(conn, run)
-        if mono and mono["has_pve_signal"]:
-            return mono["pve_wins"], mono["pve_losses"]
-
-    pve = conn.execute("""
-        SELECT
-            SUM(CASE WHEN outcome='opponent_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) as w,
-            SUM(CASE WHEN outcome='player_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) as l
-        FROM combat_results WHERE run_id=?
-    """, (run_id,)).fetchone()
-    if not pve:
-        return 0, 0
-    return (pve["w"] or 0), (pve["l"] or 0)
-
-
-def _get_pvp_record(conn, run_id: int, run: dict) -> tuple[int, int]:
-    mono = _get_mono_record(conn, run)
-    if mono and mono["has_pvp_total"]:
-        return mono["pvp_wins"], mono["pvp_losses"]
-
-    pvp_w, pvp_l = 0, 0
-    combats = conn.execute(
-        "SELECT outcome, combat_type FROM combat_results WHERE run_id=?", (run_id,)
-    ).fetchall()
-    for c in combats:
-        if (c["combat_type"] or "pve") == "pvp":
-            if c["outcome"] == "opponent_died":
-                pvp_w += 1
-            elif c["outcome"] == "player_died":
-                pvp_l += 1
-    terminal = _get_run_end_snapshot(conn, run)
-    if terminal and terminal.get("victories") is not None:
-        return terminal["victories"], terminal.get("defeats") or 0
-    return pvp_w, pvp_l
-
-
 def _get_run_record(conn, run: dict) -> dict:
     """Return PvP/PvE counters, preferring run-anchored Mono snapshots."""
     mono = _get_mono_record(conn, run)
-    combat = _get_combat_result_record(conn, run["id"])
+    combat = conn.execute("""
+        SELECT
+            SUM(CASE WHEN combat_type='pvp' AND outcome='opponent_died' THEN 1 ELSE 0 END) AS pvp_w,
+            SUM(CASE WHEN combat_type='pvp' AND outcome='player_died'   THEN 1 ELSE 0 END) AS pvp_l,
+            SUM(CASE WHEN outcome='opponent_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_w,
+            SUM(CASE WHEN outcome='player_died'   AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_l
+        FROM combat_results
+        WHERE run_id=?
+    """, (run["id"],)).fetchone()
+
     if mono and mono["has_pve_signal"]:
         pve_w, pve_l = mono["pve_wins"], mono["pve_losses"]
     else:
-        pve_w, pve_l = combat["pve_wins"], combat["pve_losses"]
+        pve_w = (combat["pve_w"] if combat else 0) or 0
+        pve_l = (combat["pve_l"] if combat else 0) or 0
 
     if mono and mono["has_pvp_total"]:
         pvp_w, pvp_l = mono["pvp_wins"], mono["pvp_losses"]
     else:
-        pvp_w, pvp_l = combat["pvp_wins"], combat["pvp_losses"]
+        pvp_w = (combat["pvp_w"] if combat else 0) or 0
+        pvp_l = (combat["pvp_l"] if combat else 0) or 0
         terminal = _get_run_end_snapshot(conn, run)
         if terminal and terminal.get("victories") is not None:
             pvp_w = terminal["victories"]
@@ -104,26 +77,6 @@ def _get_run_record(conn, run: dict) -> dict:
         "pve_wins": pve_w,
         "pve_losses": pve_l,
         "record_source": "mono" if mono and mono["has_combat_signal"] else "combat_results",
-    }
-
-
-def _get_combat_result_record(conn, run_id: int) -> dict:
-    row = conn.execute("""
-        SELECT
-            SUM(CASE WHEN combat_type='pvp' AND outcome='opponent_died' THEN 1 ELSE 0 END) AS pvp_w,
-            SUM(CASE WHEN combat_type='pvp' AND outcome='player_died'   THEN 1 ELSE 0 END) AS pvp_l,
-            SUM(CASE WHEN outcome='opponent_died' AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_w,
-            SUM(CASE WHEN outcome='player_died'   AND (combat_type='pve' OR combat_type IS NULL) THEN 1 ELSE 0 END) AS pve_l
-        FROM combat_results
-        WHERE run_id=?
-    """, (run_id,)).fetchone()
-    if not row:
-        return {"pvp_wins": 0, "pvp_losses": 0, "pve_wins": 0, "pve_losses": 0}
-    return {
-        "pvp_wins": row["pvp_w"] or 0,
-        "pvp_losses": row["pvp_l"] or 0,
-        "pve_wins": row["pve_w"] or 0,
-        "pve_losses": row["pve_l"] or 0,
     }
 
 

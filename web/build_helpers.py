@@ -321,9 +321,10 @@ def build_run_summary(
     build_data, _relevant_items = load_builds(run.get("hero"))
 
     # PvP / PvE
-    from web.overlay_state import _get_pvp_record, _get_pve_record, _get_run_end_snapshot
-    pvp_w, pvp_l = _get_pvp_record(conn, run_id, run)
-    pve_w, pve_l = _get_pve_record(conn, run_id, run)
+    from web.overlay_state import _get_run_record, _get_run_end_snapshot
+    record = _get_run_record(conn, run)
+    pvp_w, pvp_l = record["pvp_wins"], record["pvp_losses"]
+    pve_w, pve_l = record["pve_wins"], record["pve_losses"]
     end_snap = _get_run_end_snapshot(conn, run)
     run_tier = classify_run_tier(
         pvp_w, pvp_l,
