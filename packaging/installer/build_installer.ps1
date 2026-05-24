@@ -37,11 +37,11 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $OutputDir = Resolve-Path $OutputDir
 
 if (-not $InnoSetupCompiler) {
-    $Candidates = @(
+    $Candidates = @(@(
         "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
         "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
         "${env:LOCALAPPDATA}\Programs\Inno Setup 6\ISCC.exe"
-    ) | Where-Object { $_ -and (Test-Path $_) }
+    ) | Where-Object { $_ -and (Test-Path $_) })
     if ($Candidates.Count -gt 0) {
         $InnoSetupCompiler = $Candidates[0]
     }
