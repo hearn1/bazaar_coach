@@ -1,3 +1,3 @@
-"""Single application version source for Bazaar Coach."""
+﻿"""Single application version source for Bazaar Coach."""
 
-APP_VERSION = "0.2.0-alpha.3"
+APP_VERSION = "0.2.0-alpha.4"
