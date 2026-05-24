@@ -359,8 +359,8 @@ def resolve_overlay_decision_names(conn, decision: dict, *, resolve_fn, safe_jso
     """Resolve chosen/offered/rejected names for overlay review rows.
 
     ``resolve_fn(conn, template_id) -> str`` and
-    ``safe_json_fn(raw) -> list|dict`` are injected by the caller to avoid
-    circular imports.
+    ``safe_json_fn(raw, default) -> list|dict`` are injected by the caller
+    to avoid circular imports.
     """
     resolver = make_resolver()
     row = dict(decision)
@@ -368,9 +368,8 @@ def resolve_overlay_decision_names(conn, decision: dict, *, resolve_fn, safe_jso
 
     chosen_template = row.get("chosen_template") or ""
     if not chosen_template:
-        offered_templates = safe_json_fn(row.get("offered_templates"))
-        if isinstance(offered_templates, dict):
-            chosen_template = offered_templates.get(row.get("chosen_id"), "") or ""
+        offered_templates = safe_json_fn(row.get("offered_templates"), {})
+        chosen_template = offered_templates.get(row.get("chosen_id"), "") or ""
 
     # ── Chosen name ──────────────────────────────────────────────────────
     chosen_name = None
@@ -383,8 +382,8 @@ def resolve_overlay_decision_names(conn, decision: dict, *, resolve_fn, safe_jso
         chosen_name = resolved if not is_unresolved(resolved) else None
 
     # ── Offered names ────────────────────────────────────────────────────
-    offered_raw = safe_json_fn(row.get("offered"))
-    offered_names = safe_json_fn(row.get("offered_names"))
+    offered_raw = safe_json_fn(row.get("offered"), [])
+    offered_names = safe_json_fn(row.get("offered_names"), [])
 
     if not offered_names or all(is_unresolved(name) for name in offered_names):
         resolved_map = resolver.bulk_resolve(offered_raw)
@@ -405,7 +404,7 @@ def resolve_overlay_decision_names(conn, decision: dict, *, resolve_fn, safe_jso
                 offered_names.append(oid)
 
     # ── Rejected names ───────────────────────────────────────────────────
-    rejected_raw = safe_json_fn(row.get("rejected"))
+    rejected_raw = safe_json_fn(row.get("rejected"), [])
     rejected_names = []
     for rejected_id in rejected_raw:
         matched = False
@@ -646,9 +645,7 @@ def format_decision_row(
 
     dtype = d["decision_type"]
     chosen_template = d.get("chosen_template") or ""
-    offered_templates = safe_json_fn(d.get("offered_templates"))
-    if not isinstance(offered_templates, dict):
-        offered_templates = {}
+    offered_templates = safe_json_fn(d.get("offered_templates"), {})
     if not chosen_template:
         chosen_template = offered_templates.get(d.get("chosen_id"), "") or ""
 
@@ -660,8 +657,8 @@ def format_decision_row(
     if dtype == "skip":
         item_name = "(skipped shop)"
 
-    offered_raw = safe_json_fn(d.get("offered"))
-    offered_names = safe_json_fn(d.get("offered_names"))
+    offered_raw = safe_json_fn(d.get("offered"), [])
+    offered_names = safe_json_fn(d.get("offered_names"), [])
 
     if resolve_image_fn:
         offered_images = [
@@ -696,7 +693,7 @@ def format_decision_row(
             else:
                 offered_names.append(oid)
 
-    rejected_raw = safe_json_fn(d.get("rejected"))
+    rejected_raw = safe_json_fn(d.get("rejected"), [])
     rejected_names = []
     for rid_val in rejected_raw:
         found = False

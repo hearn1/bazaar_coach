@@ -51,8 +51,8 @@ def _make_decision(seq, dtype, chosen=None, rejected=None, offered=None):
 
 
 def _fake_resolve_names(conn, decision, *, resolve_fn, safe_json_fn):
-    offered_raw = safe_json_fn(decision.get("offered") or "[]") or []
-    rejected_raw = safe_json_fn(decision.get("rejected") or "[]") or []
+    offered_raw = safe_json_fn(decision.get("offered") or "[]", []) or []
+    rejected_raw = safe_json_fn(decision.get("rejected") or "[]", []) or []
     return {
         "chosen_template": decision.get("chosen_template") or "",
         "chosen_name": decision.get("chosen_name"),
@@ -87,7 +87,7 @@ def _run(monkeypatch, tmp_path, decisions, pick_fn, build_data=None):
             decisions=decisions,
             build_data=build_data if build_data is not None else _DEFAULT_BUILD_DATA,
             resolve_fn=lambda conn, t: t,
-            safe_json_fn=json.loads,
+            safe_json_fn=db.safe_json,
         )
     finally:
         conn.close()
