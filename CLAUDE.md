@@ -65,7 +65,6 @@ coach.py                   # entrypoint - launches the subsystems below
   └─ overlay.py            # PyWebView always-on-top launcher
 
 Manual diagnostics:
-  bridge.py                # correlation report between Pipeline A and Pipeline B (rarely used)
   scorer.py                # LiveScorer scores during the run; CLI prints a manual report
 ```
 
