@@ -876,12 +876,18 @@
         {
           "name": "Night Vision / Chains / Fairy Circle",
           "phase": "late",
+          "core_items": [
+            "Night Vision",
+            "Chains",
+            "Fairy Circle"
+          ],
           "carry_items": [],
           "support_items": [
             "Dual Reaver",
             "Fogshroom",
             "Waystones"
-          ]
+          ],
+          "notes": "Partial stub from automated enricher — carry_items, timing_profile, and condition still need curator review. Items in the archetype name now correctly appear as core. See issue #82."
         }
       ]
     }
