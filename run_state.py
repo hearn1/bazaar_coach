@@ -21,6 +21,7 @@ Combat outcomes:
 
 import json
 import threading
+from dataclasses import dataclass, field
 
 import db
 import card_cache
@@ -29,6 +30,19 @@ from board_state import BoardState
 from name_resolver import NameResolver
 from shop_session import ShopSession
 from typing import Callable, Optional
+
+
+@dataclass
+class OfferBatch:
+    """The most recent offer set, tagged with the context that produced it.
+
+    Replaces the trio of pending_offered / _pending_event_choices / _shop.offered
+    reads that used to be reconciled with `X if X else Y` at every consumer.
+    ShopSession still owns its own offer list for reroll/window bookkeeping;
+    this is the only list RunState consumers read.
+    """
+    kind: str = "other"  # "shop" | "event" | "skill" | "other"
+    ids: list[str] = field(default_factory=list)
 
 
 class RunState:
@@ -54,7 +68,7 @@ class RunState:
 
         self.current_state: str = "Unknown"
 
-        self.pending_offered: list[str] = []
+        self._offered: OfferBatch = OfferBatch()
         self.decision_seq: int = 0
         self._shop_window_id: int = 0
         self._in_shop: bool = False
@@ -76,7 +90,6 @@ class RunState:
         # (the latent half of #83 left unaddressed by PR #88).
         self._snapshot_baseline_id: int = 0
 
-        self._pending_event_choices: list[str] = []
         self._pending_sell_commands: list[dict] = []
         # Centralized name resolution with lazy retry
         self.resolver = NameResolver()
@@ -327,13 +340,9 @@ class RunState:
             self._shop_window_id += 1
             self._shop = ShopSession(window_id=self._shop_window_id)
 
-        # ── Entering ChoiceState: capture map node options ──────────────────
-        if self.current_state == "ChoiceState":
-            self._pending_event_choices = list(self.pending_offered)
-
         # ── Entering combat: clear buffers ──────────────────────────────────
         if self.current_state in ("CombatState", "PVPCombatState"):
-            self.pending_offered.clear()
+            self._offered = OfferBatch()
             self._current_combat_type = "pvp" if self.current_state == "PVPCombatState" else "pve"
             self._in_shop = False
             self._shop = ShopSession(window_id=self._shop_window_id)
@@ -465,7 +474,7 @@ class RunState:
         return None
 
     def _can_record_event_choice(self, instance_id: str) -> bool:
-        offered = list(self._pending_event_choices) if self._pending_event_choices else list(self.pending_offered)
+        offered = list(self._offered.ids)
         if not offered:
             return False
         if instance_id in offered:
@@ -510,7 +519,7 @@ class RunState:
         # No purchases on this page
         if leftovers and self.run_id:
             if result.select_command_seen and len(leftovers) == 1:
-                self.pending_offered = list(leftovers)
+                self._offered = OfferBatch("shop", list(leftovers))
                 self._log_inferred_shop_purchase(ts)
                 preserve_inferred_purchase = bool(self._shop.last_inferred_purchase_id)
             elif result.select_command_seen:
@@ -531,10 +540,10 @@ class RunState:
                     f" | Leftovers: {self._format_name_list(leftover_names)}"
                 )
             else:
-                self.pending_offered = list(leftovers)
+                self._offered = OfferBatch("shop", list(leftovers))
                 self._log_skip(ts)
 
-        self.pending_offered.clear()
+        self._offered = OfferBatch()
         self._encounter_mode = "unknown"
         if not preserve_inferred_purchase:
             self._shop.clear_inferred_purchase()
@@ -716,7 +725,7 @@ class RunState:
 
     def _log_skip(self, ts: str):
         """Log a shop exit with no purchase as a 'skip' decision."""
-        offered = list(self.pending_offered)
+        offered = list(self._offered.ids)
         if not offered:
             return
 
@@ -758,7 +767,7 @@ class RunState:
             self._register_unresolved(decision_id, offered, live_context.get("offered_names") or [])
             reroll_str = f" (rerolled {self._shop.reroll_count}x)" if self._shop.reroll_count else ""
             print(f"[Decision #{self.decision_seq}] ⏭  SKIP{reroll_str} | Passed on: {self._format_name_list(names)}")
-        self.pending_offered.clear()
+        self._offered = OfferBatch()
 
     def _on_command_sent(self, event: dict):
         """Use outbound commands as a fallback signal for missing purchase lines."""
@@ -767,7 +776,7 @@ class RunState:
             self._queue_sell_command(event.get("ts", ""))
             return
         if command == "SelectItemCommand":
-            offered = list(self._shop.offered) if self._shop.offered else list(self.pending_offered)
+            offered = list(self._offered.ids)
             if (
                 self.current_state == "EncounterState"
                 and self._ids_look_like_shop_offers(offered)
@@ -835,8 +844,7 @@ class RunState:
                 seen.add(instance_id)
 
         if self._ids_look_like_event_choices(deduped):
-            self.pending_offered = list(deduped)
-            self._pending_event_choices = list(deduped)
+            self._offered = OfferBatch("event", list(deduped))
             self._encounter_mode = "event"
             self._in_shop = False
             self._shop = ShopSession(window_id=self._shop_window_id)
@@ -846,15 +854,16 @@ class RunState:
             self._encounter_mode = "shop"
             self._in_shop = True
 
-        # Delegate offer tracking to ShopSession (handles implicit reroll detection internally)
+        # Delegate offer tracking to ShopSession (handles implicit reroll detection internally).
+        # ShopSession keeps its own offered copy for window/reroll bookkeeping; RunState mirrors
+        # it into self._offered so consumers have a single read site.
         if self._in_shop and self.current_state == "EncounterState" and self._encounter_mode == "shop":
             self._shop.on_cards_offered(deduped)
-            self.pending_offered = list(self._shop.offered)
+            self._offered = OfferBatch("shop", list(self._shop.offered))
             return
 
-        for instance_id in deduped:
-            if instance_id not in self.pending_offered:
-                self.pending_offered.append(instance_id)
+        kind = "skill" if any(iid.startswith("skl") for iid in deduped) else "other"
+        self._offered = OfferBatch(kind, list(deduped))
 
     def _on_cards_disposed(self, event: dict):
         instance_ids = event["instance_ids"]
@@ -893,10 +902,10 @@ class RunState:
                     "[RunState] SellCardCommand seen, but disposal batch did not match "
                     f"known owned cards: {instance_ids}"
                 )
-        if not self.pending_offered:
+        if not self._offered.ids:
             return
         disposed = set(instance_ids)
-        self.pending_offered = [iid for iid in self.pending_offered if iid not in disposed]
+        self._offered.ids = [iid for iid in self._offered.ids if iid not in disposed]
 
     def _on_card_sold(self, event: dict):
         instance_id = event["instance_id"]
@@ -963,10 +972,10 @@ class RunState:
 
     def _log_inferred_shop_purchase(self, ts: str):
         """Recover a one-card shop purchase when the Card Purchased line is missing."""
-        if not self.run_id or len(self.pending_offered) != 1:
+        if not self.run_id or len(self._offered.ids) != 1:
             return
 
-        instance_id = self.pending_offered[0]
+        instance_id = self._offered.ids[0]
         template_id = self.resolver.get_template_id(instance_id)
         offered = [instance_id]
         dtype = self._classify_purchase(instance_id)
@@ -1019,7 +1028,7 @@ class RunState:
             print(f"[Decision #{self.decision_seq}] 🛒 {name}{reroll_str} "
                   "| Inferred from shop select command")
 
-        self.pending_offered.clear()
+        self._offered = OfferBatch()
 
     def _on_card_purchased(self, event: dict):
         if not self.run_id:
@@ -1078,14 +1087,14 @@ class RunState:
             and self._can_record_event_choice(instance_id)
         ):
             self._record_event_choice(event, instance_id, template_id)
-            self.pending_offered.clear()
+            self._offered = OfferBatch()
             return
 
         # Use the dedicated skill_selected event as the authoritative logging
         # path so skill picks do not double-log through both handlers.
         if prefix == "skl":
             if self._has_logged_skill_decision(instance_id):
-                self.pending_offered = [x for x in self.pending_offered if x != instance_id]
+                self._offered.ids = [x for x in self._offered.ids if x != instance_id]
             return
 
         # ── Player-side purchase ─────────────────────────────────────────────
@@ -1093,7 +1102,7 @@ class RunState:
             return
 
         dtype = self._classify_purchase(instance_id)
-        offered = list(self._shop.offered) if self._shop.offered else list(self.pending_offered)
+        offered = list(self._offered.ids)
         if dtype == "free_reward" and instance_id and instance_id not in offered:
             offered.append(instance_id)
 
@@ -1137,11 +1146,11 @@ class RunState:
             reroll_str = f" [r{self._shop.reroll_count}]" if self._shop.reroll_count else ""
             print(f"[Decision #{self.decision_seq}] {tag} {name}{reroll_str} | Pending shop close | {self.current_state}")
 
-        self.pending_offered = [x for x in self.pending_offered if x != instance_id]
+        self._offered.ids = [x for x in self._offered.ids if x != instance_id]
 
     def _record_event_choice(self, event: dict, instance_id: str, template_id: str):
         """Record which map encounter node the player chose."""
-        offered = list(self._pending_event_choices) if self._pending_event_choices else list(self.pending_offered)
+        offered = list(self._offered.ids)
         normalized_offered = self._normalize_event_choice_offered(offered, instance_id)
         if normalized_offered != offered:
             print(
@@ -1184,7 +1193,7 @@ class RunState:
             })
             name = card_cache.resolve_template_id(template_id) or instance_id
             print(f"[Decision #{self.decision_seq}] 🗺  Event: {name} | Skipped {len(rejected)} others")
-        self._pending_event_choices.clear()
+        self._offered = OfferBatch()
 
     def _on_skill_selected(self, event: dict):
         if not self.run_id:
@@ -1192,7 +1201,7 @@ class RunState:
         instance_id = event["instance_id"]
         socket      = event["socket"]
         template_id = self.resolver.get_template_id(instance_id)
-        offered     = list(self.pending_offered)
+        offered     = list(self._offered.ids)
         rejected    = [x for x in offered if x != instance_id]
         self.board.buy(
             instance_id=instance_id,
@@ -1203,7 +1212,7 @@ class RunState:
         )
 
         if self._has_logged_skill_decision(instance_id):
-            self.pending_offered = [x for x in self.pending_offered if x != instance_id]
+            self._offered.ids = [x for x in self._offered.ids if x != instance_id]
             return
 
         self.decision_seq += 1
@@ -1239,7 +1248,7 @@ class RunState:
             })
         name = card_cache.resolve_template_id(template_id) if template_id else instance_id
         print(f"[Decision #{self.decision_seq}] 🔮 Skill: {name} | Rejected {len(rejected)}")
-        self.pending_offered.clear()
+        self._offered = OfferBatch()
 
     def _on_card_moved(self, event: dict):
         if not self.run_id:
