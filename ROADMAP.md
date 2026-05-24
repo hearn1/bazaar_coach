@@ -28,9 +28,8 @@ Ranked by entropy-reduction value. Independent of the bug queue — these are qu
 3. [#100](https://github.com/hearn1/bazaar_coach/issues/100) — Collapse the overlapping PvP/PvE record helpers in `web/overlay_state.py`. `_get_pvp_record` / `_get_pve_record` are vestigial; `_get_run_record` already covers both call sites. ~40-60 net LOC.
 4. [#101](https://github.com/hearn1/bazaar_coach/issues/101) — Delete `bridge.py`. Manual diagnostic with no in-app callers; superseded by `decisions.api_game_state_id`. ~518 net LOC.
 5. [#102](https://github.com/hearn1/bazaar_coach/issues/102) — Consolidate `score_run` + `print_report` CLI scaffolding in `scorer.py`. Same category as #101: post-hoc analysis superseded by live scoring. Land after #98. ~140-180 net LOC.
-6. [#103](https://github.com/hearn1/bazaar_coach/issues/103) — Unify the three offered-list trackers in `run_state.py` (`pending_offered`, `_pending_event_choices`, `_shop.offered`). Fragile; land last. ~30-50 net LOC.
-7. [#104](https://github.com/hearn1/bazaar_coach/issues/104) — Simplify inferred-purchase reconciliation in `run_state._on_card_purchased`. Three near-duplicate branches collapse to one. ~20-30 net LOC.
-8. [#105](https://github.com/hearn1/bazaar_coach/issues/105) — Unify `_load_json_list` / `_load_json_dict` / `_safe_json` helpers across `scorer.py` and `web/server.py`. Tiny, bundle with another scorer change. ~15-25 net LOC.
+6. [#104](https://github.com/hearn1/bazaar_coach/issues/104) — Simplify inferred-purchase reconciliation in `run_state._on_card_purchased`. Three near-duplicate branches collapse to one. ~20-30 net LOC.
+7. [#105](https://github.com/hearn1/bazaar_coach/issues/105) — Unify `_load_json_list` / `_load_json_dict` / `_safe_json` helpers across `scorer.py` and `web/server.py`. Tiny, bundle with another scorer change. ~15-25 net LOC.
 
 ## Long-term goal — drop Player.log dependency
 
