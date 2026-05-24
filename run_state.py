@@ -1040,52 +1040,25 @@ class RunState:
             "name": card_cache.resolve_template_id(template_id),
         }
 
-        # Skip if this was already handled by inferred purchase
-        if instance_id == self._shop.last_inferred_purchase_id:
-            if is_player_side:
-                cat = self._section_to_action_category(section, "item") or "player_board"
-                self.board.buy(instance_id=instance_id, template_id=template_id,
-                               socket=target_socket, category=cat,
-                               name=card_record["name"])
+        # Reconcile inferred purchase: arrived via shop select command, now
+        # confirmed by authoritative Card Purchased line.
+        inferred_id = self._shop.last_inferred_purchase_id
+        if is_player_side and inferred_id:
+            is_alias = inferred_id != instance_id
+            if is_alias:
+                self.board.pop(inferred_id)
+            cat = self._section_to_action_category(section, "item") or "player_board"
+            self.board.buy(instance_id=instance_id, template_id=template_id,
+                           socket=target_socket, category=cat, name=card_record["name"])
             if self._shop.last_inferred_purchase_decision_id is not None:
                 db.update_decision_purchase_details(
                     self._shop.last_inferred_purchase_decision_id,
                     template_id, section, target_socket, chosen_id=instance_id,
                 )
-                print(
-                    f"[RunState] Reconciled inferred purchase {instance_id} "
-                    f"with template={template_id} section={section} socket={target_socket}"
-                )
-            else:
-                print(
-                    f"[RunState] Inferred purchase {instance_id} matched an authoritative "
-                    f"purchase line, but no decision_id was available to patch."
-                )
-            self._shop.clear_inferred_purchase()
-            return
-        if (
-            is_player_side
-            and self._shop.last_inferred_purchase_id
-            and self._shop.last_inferred_purchase_decision_id is not None
-        ):
-            inferred_instance_id = self._shop.last_inferred_purchase_id
-            inferred_category, _ = self.board.pop(inferred_instance_id)
-            if inferred_category:
-                print(
-                    f"[RunState] Inferred purchase instance alias {inferred_instance_id} "
-                    f"resolved to authoritative purchase {instance_id}"
-                )
-            cat = self._section_to_action_category(section, "item") or "player_board"
-            self.board.buy(instance_id=instance_id, template_id=template_id,
-                           socket=target_socket, category=cat, name=card_record["name"])
-            db.update_decision_purchase_details(
-                self._shop.last_inferred_purchase_decision_id,
-                template_id, section, target_socket, chosen_id=instance_id,
-            )
+            alias_note = f" alias {inferred_id} ->" if is_alias else ""
             print(
-                f"[RunState] Reconciled inferred purchase alias {inferred_instance_id} -> "
-                f"{instance_id} with template={template_id} section={section} "
-                f"socket={target_socket}"
+                f"[RunState] Reconciled inferred purchase{alias_note} {instance_id} "
+                f"template={template_id} section={section} socket={target_socket}"
             )
             self._shop.clear_inferred_purchase()
             return

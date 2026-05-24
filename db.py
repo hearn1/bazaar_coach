@@ -38,6 +38,19 @@ _write_thread: Optional[threading.Thread] = None
 _writer_thread_id: Optional[int] = None
 _writer_ready: Optional[threading.Event] = None
 
+
+def safe_json(raw, default):
+    """Parse a JSON column defensively, returning `default` on any failure
+    or shape mismatch. Pass `[]` for list-shaped columns, `{}` for dict-shaped."""
+    if not raw:
+        return default
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, type(default)) else default
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
 def get_conn() -> sqlite3.Connection:
     """Return a new standalone connection. Use for one-off scripts or threads."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)

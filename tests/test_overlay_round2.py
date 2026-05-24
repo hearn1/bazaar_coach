@@ -238,8 +238,8 @@ def test_build_overlay_review_rows_skip_primary_text_is_missed_item():
         hero="Karnok",
         prefer_scored_fallback=True,
         resolve_fn=lambda _conn, tid: tid,
-        safe_json_fn=lambda v: (
-            __import__("json").loads(v) if isinstance(v, str) and v.strip().startswith(("[", "{")) else (v if isinstance(v, list) else [])
+        safe_json_fn=lambda v, default: (
+            __import__("json").loads(v) if isinstance(v, str) and v.strip().startswith(("[", "{")) else (v if isinstance(v, type(default)) else default)
         ),
         lookup_image_by_name_fn=None,
     )

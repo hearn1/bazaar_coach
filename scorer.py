@@ -349,28 +349,6 @@ def get_item_tier(builds: dict, item_name: str) -> Optional[str]:
     return None
 
 
-def _load_json_list(raw_value: str) -> list:
-    """Parse a JSON list field defensively."""
-    if not raw_value:
-        return []
-    try:
-        value = json.loads(raw_value)
-        return value if isinstance(value, list) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
-
-
-def _load_json_dict(raw_value: str) -> dict:
-    """Parse a JSON object field defensively."""
-    if not raw_value:
-        return {}
-    try:
-        value = json.loads(raw_value)
-        return value if isinstance(value, dict) else {}
-    except (json.JSONDecodeError, TypeError):
-        return {}
-
-
 def _filter_resolved_names(names: list) -> list[str]:
     """Keep human-readable names and drop unresolved ids/placeholders."""
     filtered = []
@@ -386,7 +364,7 @@ def _filter_resolved_names(names: list) -> list[str]:
 def _resolve_offered_names(decision, offered_raw: list[str], api_template_map: dict | None = None) -> list[str]:
     """Resolve offered names, preferring stored live decision context."""
     offered_names = []
-    enriched_names = _load_json_list(decision["offered_names"]) if "offered_names" in decision.keys() else []
+    enriched_names = db.safe_json(decision["offered_names"], []) if "offered_names" in decision.keys() else []
 
     if enriched_names:
         return enriched_names
@@ -405,7 +383,7 @@ def _resolve_offered_names(decision, offered_raw: list[str], api_template_map: d
 
 def _resolve_rejected_names(decision, offered_raw: list[str], offered_names: list[str]) -> list[str]:
     """Map rejected instance ids back to readable names using offered ordering."""
-    rejected_raw = _load_json_list(decision["rejected"])
+    rejected_raw = db.safe_json(decision["rejected"], [])
     if not rejected_raw:
         return []
 
@@ -1283,8 +1261,8 @@ def _score_loaded_run(
             day=d["day"] if "day" in d.keys() else None,
             phase_actual=d["phase_actual"] if "phase_actual" in d.keys() else None,
         )
-        offered_raw = _load_json_list(d["offered"])
-        api_template_map = _load_json_dict(d["offered_templates"]) if "offered_templates" in d.keys() else {}
+        offered_raw = db.safe_json(d["offered"], [])
+        api_template_map = db.safe_json(d["offered_templates"], {}) if "offered_templates" in d.keys() else {}
         snapshot_board = board_snapshots.get(d["id"])
         if snapshot_board is not None:
             board = dict(snapshot_board)
@@ -1578,7 +1556,7 @@ def _score_single_decision(
         phase_actual=decision.get("phase_actual"),
     )
 
-    offered_raw = _load_json_list(decision.get("offered"))
+    offered_raw = db.safe_json(decision.get("offered"), [])
 
     board = dict(board)  # work on a copy
 
@@ -1595,7 +1573,7 @@ def _score_single_decision(
             skip_rerolls = 0
 
         named_offered = [n for n in pre_resolved if n]
-        enriched_names = _load_json_list(decision.get("offered_names"))
+        enriched_names = db.safe_json(decision.get("offered_names"), [])
         if enriched_names:
             named_offered = _filter_resolved_names(enriched_names)
 
@@ -1633,10 +1611,10 @@ def _score_single_decision(
         }
 
     # ── Item / companion / skill ────────────────────────────────────────────
-    offered_names = _load_json_list(decision.get("offered_names")) or [
+    offered_names = db.safe_json(decision.get("offered_names"), []) or [
         _cc.resolve_template_id(oid) or oid for oid in offered_raw
     ]
-    rejected_raw = _load_json_list(decision.get("rejected"))
+    rejected_raw = db.safe_json(decision.get("rejected"), [])
     rejected_names = _resolve_rejected_names(
         decision, offered_raw, offered_names
     ) if rejected_raw else []

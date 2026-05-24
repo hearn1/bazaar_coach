@@ -40,6 +40,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import card_cache
+import db
 import first_run
 import refresh_builds
 import scorer
@@ -96,16 +97,6 @@ def _conn() -> sqlite3.Connection:
 
 def _rows_to_dicts(rows) -> list[dict]:
     return [dict(r) for r in rows]
-
-
-def _safe_json(raw) -> list | dict:
-    if not raw:
-        return []
-    try:
-        v = json.loads(raw)
-        return v if isinstance(v, (list, dict)) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
 
 
 def _resolve(conn, template_id: str) -> str:
@@ -638,7 +629,7 @@ def api_overlay_state():
         state = build_overlay_state(
             conn,
             resolve_fn=_resolve,
-            safe_json_fn=_safe_json,
+            safe_json_fn=db.safe_json,
             lookup_image_by_name_fn=lookup_image_url,
         )
         if "error" in state:
@@ -734,7 +725,7 @@ def api_decisions(run_id: int):
                 dict(d),
                 resolve_fn=lambda tid: _resolve(conn, tid),
                 get_tier_fn=lambda tid: _get_tier(conn, tid),
-                safe_json_fn=_safe_json,
+                safe_json_fn=db.safe_json,
                 resolve_instance_ids_fn=lambda ids: _resolve_instance_ids_via_api_cards(conn, ids),
                 is_unresolved_fn=is_unresolved,
                 resolve_image_fn=lambda tid: _resolve_image(conn, tid),
@@ -1054,8 +1045,6 @@ def api_force_end_run(run_id: int):
         diagnostic mode. The fallback case includes "fallback": True in
         the response so callers can tell which path ran.
     """
-    import db
-
     ts_iso = datetime.now(timezone.utc).isoformat()
 
     conn = _conn()
