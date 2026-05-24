@@ -107,9 +107,6 @@ _ENABLE_PROBES = False
 # ENABLE_BROAD_HOOKS kept disabled (narrow hooks sufficient)
 _ENABLE_BROAD_HOOKS = False
 _rendered_snapshot_keys = set()
-_last_action_snapshot = None
-_action_event_seq = 0
-_pending_direct_rerolls = 0
 _mono_db_conn = None
 _event_template_ids_by_instance: dict = {}
 # F1: deferred card data keyed by snapshot_id â€” merged into snapshots when the deferred message arrives
@@ -271,379 +268,11 @@ def _log_hook_perf(payload: dict):
     print(f"[MonoPerf] slow hook: {duration_ms:.1f} ms{suffix}")
 
 
-def _clone_snapshot_for_actions(gs: dict) -> dict:
-    cloned = {
-        "run": dict(gs.get("run", {})),
-        "state": dict(gs.get("state", {})),
-        "player": dict(gs.get("player", {})),
-    }
-    for key in _CARD_LIST_KEYS:
-        cloned[key] = [dict(card) for card in gs.get(key, [])]
-    return cloned
-
-
 def _prune_disabled_snapshot_cards(gs: dict) -> dict:
     """Drop snapshot sections that are intentionally disabled in this run."""
     if not _CAPTURE_OPPONENT_BOARD:
         gs["opponent_board"] = []
     return gs
-
-
-def _card_map(gs: dict) -> dict:
-    cards_by_id = {}
-    for category in _CARD_LIST_KEYS:
-        for card in gs.get(category, []) or []:
-            instance_id = card.get("instance_id")
-            if not instance_id:
-                continue
-            cards_by_id[instance_id] = {
-                "instance_id": instance_id,
-                "template_id": card.get("template_id"),
-                "category": category,
-                "socket": card.get("socket"),
-                "type": card.get("type"),
-                "tier": card.get("tier"),
-                "section": card.get("section"),
-            }
-    return cards_by_id
-
-
-def _numeric_delta(before, after):
-    if isinstance(before, (int, float)) and isinstance(after, (int, float)):
-        return after - before
-    return None
-
-
-def _is_action_state(state_name: str | None) -> bool:
-    return state_name in {
-        "Choice",
-        "Encounter",
-        "Loot",
-        "LevelUp",
-        "Pedestal",
-        "EndRunVictory",
-        "EndRunDefeat",
-    }
-
-
-def _make_action_event(gs: dict, event_type: str, **details) -> dict:
-    global _action_event_seq
-
-    _action_event_seq += 1
-    run = gs.get("run", {})
-    state = gs.get("state", {})
-    player = gs.get("player", {})
-    return {
-        "event_seq": _action_event_seq,
-        "captured_at": gs.get("timestamp", datetime.datetime.now().isoformat()),
-        "snapshot_id": gs.get("id"),
-        "message_id": gs.get("message_id"),
-        "event_type": event_type,
-        "run_state": state.get("state"),
-        "hero": player.get("hero"),
-        "day": run.get("day"),
-        "hour": run.get("hour"),
-        "gold": player.get("Gold"),
-        "details": details,
-    }
-
-
-def _infer_action_events(prev: dict | None, curr: dict) -> list[dict]:
-    global _pending_direct_rerolls
-
-    if not prev:
-        return []
-
-    events = []
-    prev_run = prev.get("run", {})
-    curr_run = curr.get("run", {})
-    prev_state = prev.get("state", {})
-    curr_state = curr.get("state", {})
-    prev_player = prev.get("player", {})
-    curr_player = curr.get("player", {})
-    prev_state_name = prev_state.get("state")
-    curr_state_name = curr_state.get("state")
-    gold_delta = _numeric_delta(prev_player.get("Gold"), curr_player.get("Gold"))
-
-    if prev_state_name and curr_state_name and prev_state_name != curr_state_name:
-        events.append(
-            _make_action_event(
-                curr,
-                "state_change",
-                from_state=prev_state_name,
-                to_state=curr_state_name,
-            )
-        )
-
-    prev_selection = list(prev_state.get("selection_set") or [])
-    curr_selection = list(curr_state.get("selection_set") or [])
-    prev_selection = _normalized_selection(prev_selection)
-    curr_selection = _normalized_selection(curr_selection)
-    if prev_selection != curr_selection:
-        events.append(
-            _make_action_event(
-                curr,
-                "selection_change",
-                previous=prev_selection,
-                current=curr_selection,
-                added=[value for value in curr_selection if value not in prev_selection],
-                removed=[value for value in prev_selection if value not in curr_selection],
-            )
-        )
-
-    prev_rerolls = prev_state.get("rerolls_remaining")
-    curr_rerolls = curr_state.get("rerolls_remaining")
-    if (
-        isinstance(prev_rerolls, int)
-        and isinstance(curr_rerolls, int)
-        and curr_rerolls < prev_rerolls
-    ):
-        if _pending_direct_rerolls > 0:
-            _pending_direct_rerolls -= 1
-        else:
-            events.append(
-                _make_action_event(
-                    curr,
-                    "reroll",
-                    previous_remaining=prev_rerolls,
-                    current_remaining=curr_rerolls,
-                    gold_delta=gold_delta,
-                    previous_selection=prev_selection,
-                    current_selection=curr_selection,
-                )
-            )
-
-    prev_cards = _card_map(prev)
-    curr_cards = _card_map(curr)
-    all_instance_ids = sorted(set(prev_cards) | set(curr_cards))
-
-    for instance_id in all_instance_ids:
-        old = prev_cards.get(instance_id)
-        new = curr_cards.get(instance_id)
-        if old and new:
-            old_category = old.get("category")
-            new_category = new.get("category")
-            old_socket = old.get("socket")
-            new_socket = new.get("socket")
-
-            if old_category == new_category and old_socket == new_socket:
-                continue
-
-            if old_category == "offered" and new_category in {"player_board", "player_stash"}:
-                events.append(
-                    _make_action_event(
-                        curr,
-                        "buy",
-                        instance_id=instance_id,
-                        template_id=new.get("template_id") or old.get("template_id"),
-                        to_category=new_category,
-                        to_socket=new_socket,
-                        gold_delta=gold_delta,
-                    )
-                )
-                continue
-
-            if old_category == "offered" and new_category == "player_skills":
-                events.append(
-                    _make_action_event(
-                        curr,
-                        "skill_select",
-                        instance_id=instance_id,
-                        template_id=new.get("template_id") or old.get("template_id"),
-                        gold_delta=gold_delta,
-                    )
-                )
-                continue
-
-            if old_category == "offered" and new_category == "opponent_board":
-                events.append(
-                    _make_action_event(
-                        curr,
-                        "event_choice",
-                        instance_id=instance_id,
-                        template_id=new.get("template_id") or old.get("template_id"),
-                        to_socket=new_socket,
-                    )
-                )
-                continue
-
-            if old_category and new_category and old_category.startswith("player_") and new_category.startswith("player_"):
-                events.append(
-                    _make_action_event(
-                        curr,
-                        "move",
-                        instance_id=instance_id,
-                        template_id=new.get("template_id") or old.get("template_id"),
-                        from_category=old_category,
-                        to_category=new_category,
-                        from_socket=old_socket,
-                        to_socket=new_socket,
-                    )
-                )
-                continue
-
-        if old and not new and old.get("category", "").startswith("player_"):
-            if (
-                (_is_action_state(prev_state_name) or _is_action_state(curr_state_name))
-                and isinstance(gold_delta, (int, float))
-                and gold_delta > 0
-            ):
-                events.append(
-                    _make_action_event(
-                        curr,
-                        "sell",
-                        instance_id=instance_id,
-                        template_id=old.get("template_id"),
-                        from_category=old.get("category"),
-                        from_socket=old.get("socket"),
-                        gold_delta=gold_delta,
-                    )
-                )
-
-    # Collapse duplicate sell events that can happen when an entire zone refreshes.
-    deduped = []
-    seen = set()
-    for event in events:
-        details = event.get("details", {})
-        key = (
-            event.get("event_type"),
-            details.get("instance_id"),
-            details.get("from_category"),
-            details.get("to_category"),
-            details.get("from_socket"),
-            details.get("to_socket"),
-            event.get("message_id"),
-            event.get("snapshot_id"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(event)
-    return deduped
-
-
-def _format_action_event(event: dict) -> str:
-    details = event.get("details", {})
-    event_type = event.get("event_type")
-    instance_id = details.get("instance_id")
-    template_id = details.get("template_id")
-
-    if event_type == "buy":
-        target_label = (
-            f"{details.get('to_category')}:{details.get('to_socket')}"
-            if details.get("to_category") is not None
-            else f"targets={details.get('target_sockets')}"
-        )
-        return (
-            f"[Action #{event['event_seq']}] BUY  {instance_id}  "
-            f"template={template_id}  -> {target_label}  "
-            f"gold_delta={details.get('gold_delta')}"
-        )
-    if event_type == "sell":
-        source_label = (
-            f"{details.get('from_category')}:{details.get('from_socket')}"
-            if details.get("from_category") is not None
-            else f"targets={details.get('target_sockets')}"
-        )
-        return (
-            f"[Action #{event['event_seq']}] SELL {instance_id}  "
-            f"template={template_id}  from {source_label}  "
-            f"gold_delta={details.get('gold_delta')}"
-        )
-    if event_type == "move":
-        if details.get("from_category") is not None or details.get("to_category") is not None:
-            move_label = (
-                f"{details.get('from_category')}:{details.get('from_socket')} -> "
-                f"{details.get('to_category')}:{details.get('to_socket')}"
-            )
-        else:
-            move_label = f"targets={details.get('target_sockets')}"
-        return (
-            f"[Action #{event['event_seq']}] MOVE {instance_id}  "
-            f"{move_label}"
-        )
-    if event_type == "skill_select":
-        return (
-            f"[Action #{event['event_seq']}] SKILL {instance_id}  "
-            f"template={template_id}  targets={details.get('target_sockets')}"
-        )
-    if event_type == "event_choice":
-        return (
-            f"[Action #{event['event_seq']}] CHOOSE {instance_id}  "
-            f"template={template_id}  -> {details.get('to_socket') or details.get('target_sockets')}"
-        )
-    if event_type == "reroll":
-        return (
-            f"[Action #{event['event_seq']}] REROLL  "
-            f"{details.get('previous_remaining')} -> {details.get('current_remaining')} left  "
-            f"gold_delta={details.get('gold_delta')}"
-        )
-    if event_type == "selection_change":
-        return (
-            f"[Action #{event['event_seq']}] SELECTION  "
-            f"{details.get('previous')} -> {details.get('current')}"
-        )
-    if event_type == "state_change":
-        return (
-            f"[Action #{event['event_seq']}] STATE  "
-            f"{details.get('from_state')} -> {details.get('to_state')}"
-        )
-    return f"[Action #{event['event_seq']}] {event_type.upper()} {json.dumps(details, default=str)}"
-
-
-def _print_action_events(events: list[dict]):
-    for event in events:
-        print(_format_action_event(event))
-
-
-def _context_snapshot_for_event() -> dict:
-    return _last_action_snapshot or _last_merged_snapshot or {}
-
-
-def _context_card_lookup(ctx: dict, instance_id: str | None) -> dict | None:
-    if not instance_id:
-        return None
-    return _card_map(ctx or {}).get(instance_id)
-def _build_direct_command_event(raw_event: dict) -> dict:
-    global _pending_direct_rerolls
-
-    ctx = _context_snapshot_for_event()
-    existing = _context_card_lookup(ctx, raw_event.get("instance_id"))
-    details = {
-        "instance_id": raw_event.get("instance_id"),
-        "command_class": raw_event.get("command_class"),
-        "target_sockets": list(raw_event.get("target_sockets") or []),
-        "section": raw_event.get("section"),
-        "hook_source": raw_event.get("hook_source"),
-    }
-    if existing:
-        details["template_id"] = existing.get("template_id")
-        details["from_category"] = existing.get("category")
-        details["from_socket"] = existing.get("socket")
-    if details["target_sockets"]:
-        details["to_socket"] = details["target_sockets"][0]
-    event_type = raw_event.get("event_type") or "command"
-    section = raw_event.get("section")
-    if event_type in {"buy", "move"}:
-        if section == 1:
-            details["to_category"] = "player_stash"
-        elif section == 0:
-            details["to_category"] = "player_board"
-        elif details.get("to_socket") is not None:
-            details["to_category"] = "player_board"
-    elif event_type == "skill_select":
-        details["to_category"] = "player_skills"
-
-    event = _make_action_event(
-        ctx,
-        event_type,
-        **details,
-    )
-    event["captured_at"] = raw_event.get("timestamp", event.get("captured_at"))
-    event["command_id"] = raw_event.get("command_id")
-    if event["event_type"] == "reroll":
-        _pending_direct_rerolls += 1
-    return event
 
 
 def on_message(message, data):
@@ -681,8 +310,6 @@ def on_message(message, data):
             # Batched items from a single hook invocation â€” dispatch each.
             for item in payload.get("items", []):
                 _dispatch_item(item)
-        elif msg_type == "command_event":
-            _dispatch_item(payload)
         elif msg_type == "game_state":
             _dispatch_item(payload)
         elif msg_type == "deferred_cards":
@@ -709,9 +336,9 @@ def on_message(message, data):
 def _dispatch_item(item):
     """Route a single agent message to the background worker queue.
 
-    For game_state and command_event, we push onto the queue so processing
-    happens off the Frida message-pump thread.  Lightweight message types
-    (probe, capture_call, info, etc.) are still handled inline.
+    For game_state, we push onto the queue so processing happens off the
+    Frida message-pump thread.  Lightweight message types (probe,
+    capture_call, info, etc.) are still handled inline.
     """
     msg_type = item.get("type", "")
     data = item.get("data", {}) or {}
@@ -721,11 +348,6 @@ def _dispatch_item(item):
         else:
             # Fallback: process inline if queue not started (no --log/--db)
             handle_game_state(data)
-    elif msg_type == "command_event":
-        if _db_queue is not None:
-            _db_queue.put(("process_command", data))
-        else:
-            handle_command_event(data)
 
 
 def handle_probe(payload):
@@ -747,13 +369,6 @@ def handle_capture_call(payload):
     _capture_calls[method] = count
     if _VERBOSE_HOOKS:
         print(f"[Capture] {method} call #{count} -> {status}")
-
-
-def handle_command_event(raw_event):
-    event = _build_direct_command_event(raw_event)
-    _print_action_events([event])
-    if (_do_log or _do_db):
-        persist_action_event(event)
 
 
 def handle_deferred_cards(payload):
@@ -1046,7 +661,7 @@ def _merge_partial_snapshot(gs):
 
 def handle_game_state(gs):
     """Process a captured game state snapshot."""
-    global _snapshot_count, _duplicate_snapshot_count, _last_action_snapshot
+    global _snapshot_count, _duplicate_snapshot_count
     gs = _merge_partial_snapshot(gs)
     _prune_disabled_snapshot_cards(gs)
     # QW5: normalize numeric timestamp (Date.now() ms) to ISO string
@@ -1067,10 +682,6 @@ def handle_game_state(gs):
 
     _seen_snapshot_keys.add(dedupe_key)
     _snapshot_count += 1
-    action_events = _infer_action_events(_last_action_snapshot, gs)
-    _last_action_snapshot = _clone_snapshot_for_actions(gs)
-    if action_events:
-        gs["action_events"] = action_events
 
     if not _should_render_snapshot(gs):
         if _do_log or _do_db:
@@ -1224,11 +835,8 @@ def start_db_writer():
                 else:
                     kind, payload = "snapshot", item
                 if kind == "process_snapshot":
-                    # Full processing: merge, dedup, infer actions, render, persist
+                    # Full processing: merge, dedup, render, persist
                     handle_game_state(payload)
-                elif kind == "process_command":
-                    # Full processing: build event, render, persist
-                    handle_command_event(payload)
                 elif kind == "deferred_cards":
                     # F1: merge deferred card data into matching snapshot
                     handle_deferred_cards(payload)
@@ -1247,8 +855,6 @@ def start_db_writer():
                     if actual_payload:
                         payload = actual_payload
                         _store_game_state_to_db_impl(actual_payload)
-                elif kind == "action_event":
-                    persist_action_event(payload)
             except Exception as e:
                 queue_depth = _db_queue.qsize() if _db_queue is not None else 0
                 print(
@@ -1327,25 +933,6 @@ def persist_snapshot(gs):
     if _do_db:
         store_game_state_to_db(gs)
 
-
-def persist_action_event(event):
-    if _do_log and _log_file:
-        _log_file.write(
-            json.dumps(
-                {
-                    "ts": event.get("captured_at"),
-                    "type": "action",
-                    "event_seq": event.get("event_seq"),
-                    "snapshot_id": event.get("snapshot_id"),
-                    "message_id": event.get("message_id"),
-                    "event_type": event.get("event_type"),
-                    "details": event.get("details", {}),
-                },
-                default=str,
-            )
-            + "\n"
-        )
-        _log_file.flush()
 
 def store_game_state_to_db(gs):
     """Enqueue snapshot persistence work for the mono DB writer thread."""

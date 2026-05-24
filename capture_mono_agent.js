@@ -10,16 +10,6 @@ const E_COMBATANT = {0:"Player",1:"Opponent"};
 const E_INVENTORY_SECTION = {0:"Hand",1:"Stash"};
 const KEEP_PLAYER_ATTR_IDS = {4:true,9:true,10:true,11:true,15:true};
 const KEEP_PLAYER_ATTR_COUNT = 5;
-const COMMAND_KIND = {
-    SelectItemCommand: "buy",
-    // MoveItemCommand: "move",
-    SelectSkillCommand: "skill_select",
-    SelectEncounterCommand: "event_choice",
-    RerollCommand: "reroll",
-    SellCardCommand: "sell",
-    CommitToPedestalCommand: "pedestal_commit",
-    ExitCurrentStateCommand: "exit_state"
-};
 const FULL_DELTA_CARDS = __FULL_DELTA_CARDS__;
 const ENABLE_PROBES = __ENABLE_PROBES__;
 const ENABLE_BROAD_HOOKS = __ENABLE_BROAD_HOOKS__;
@@ -82,15 +72,10 @@ let _lastAttrsStatReportMs = 0;
 const captureCallCounts = {};
 const hookedCode = {};
 const probeLogCounts = {};
-const commandProbeLogCounts = {};
 const argLogCounts = {};
 const seenMessageIds = {};
 const seenMessageOrder = [];
 const MAX_SEEN_MESSAGE_IDS = 512;
-const seenCommandKeys = {};
-const seenCommandOrder = [];
-const MAX_SEEN_COMMAND_KEYS = 512;
-let commandCounter = 0;
 
 const mono = Process.getModuleByName('mono-2.0-bdwgc.dll');
 function monoExport(name, ret, args) {
@@ -498,61 +483,6 @@ function _directReadMonoString(strPtr) {
     } catch (e) {
         return readMonoString(strPtr);
     }
-}
-
-// QW4: Cache isCommandClassName results (5+ string ops + loop per call)
-const _isCommandClassNameCache = new Map();
-function isCommandClassName(className) {
-    if (!className) return false;
-    const cached = _isCommandClassNameCache.get(className);
-    if (cached !== undefined) return cached;
-    const simple = className.split('.').pop();
-    let result = false;
-    if (COMMAND_KIND[simple]) {
-        result = true;
-    } else {
-        for (const key of Object.keys(COMMAND_KIND)) {
-            if (simple === key || simple.startsWith(key + '`') || simple.endsWith(key) || simple.includes(key)) {
-                result = true;
-                break;
-            }
-        }
-    }
-    _isCommandClassNameCache.set(className, result);
-    return result;
-}
-
-function resolveCommandKindInfo(className) {
-    if (!className) return null;
-    const simple = className.split('.').pop();
-    if (COMMAND_KIND[simple]) {
-        return { simpleName: simple, commandKey: simple, eventType: COMMAND_KIND[simple] };
-    }
-    for (const key of Object.keys(COMMAND_KIND)) {
-        if (simple === key) {
-            return { simpleName: simple, commandKey: key, eventType: COMMAND_KIND[key] };
-        }
-        if (simple.startsWith(key + '`')) {
-            return { simpleName: simple, commandKey: key, eventType: COMMAND_KIND[key] };
-        }
-        if (simple.endsWith(key)) {
-            return { simpleName: simple, commandKey: key, eventType: COMMAND_KIND[key] };
-        }
-        if (simple.includes(key)) {
-            return { simpleName: simple, commandKey: key, eventType: COMMAND_KIND[key] };
-        }
-    }
-    return null;
-}
-
-function isCommandParamType(typeName) {
-    if (!typeName) return false;
-    if (isCommandClassName(typeName)) return true;
-    if (typeName.includes('INetCommand')) return true;
-    if (typeName.includes('.ICommand')) return true;
-    if (typeName.endsWith('.ICommand')) return true;
-    if (typeName.includes('Command')) return true;
-    return false;
 }
 
 function readGuid(base, off) {
@@ -1943,17 +1873,6 @@ function buildSnapshotHints(method){
     return hints;
 }
 
-function buildCommandHints(method){
-    const hints=[];
-    for(let i=0;i<method.params.length;i++){
-        const paramType=method.params[i]||'';
-        if(isCommandParamType(paramType)){
-            hints.push({runtimeIndex:i+1,paramType:paramType});
-        }
-    }
-    return hints;
-}
-
 function matchHintedArgs(args,hints,isRelevant){
     const matches=[];
     const seen={};
@@ -2009,39 +1928,6 @@ function getSnapshotMatches(method, args) {
 }
 
 
-function getCommandMatches(method,args){
-    if(method.commandHints&&method.commandHints.length>0){
-        return matchHintedArgs(args,method.commandHints,(className,paramType)=>isCommandClassName(className)||isCommandParamType(paramType));
-    }
-    return [];
-}
-
-function emitCommandProbe(method, reason, matches, args) {
-    try {
-        // TODO: Remove this early-return once sell command extraction is resolved.
-        // The no-matches path calls inspectArgs which reads class names from
-        // process memory on the game thread, causing visible lag during combat
-        // when OnAuraEffectExecuted and HandleMessage fire dozens of times/sec.
-        if (reason === 'no-matches') return;
-
-        const key = formatMethod(method) + '|' + reason;
-        commandProbeLogCounts[key] = (commandProbeLogCounts[key] || 0) + 1;
-        if (commandProbeLogCounts[key] > 2) return;
-
-        let detail = '';
-        if (matches && matches.length > 0) {
-            detail = matches.map(m => 'arg' + m.index + '=' + m.className).join(', ');
-        } else {
-            const inspected = inspectArgs(method, args);
-            detail = inspected.length > 0
-                ? inspected.map(m => 'arg' + m.index + '=' + m.className).join(', ')
-                : 'no object args';
-        }
-
-        send({type:'info', msg:'Command probe ' + reason + ' ' + formatMethod(method) + ' :: ' + detail});
-    } catch (e) {}
-}
-
 function readEmbeddedSnapshotFromObject(objPtr,classKey){try{const info=fieldInfoCache[classKey];if(!info)return null;for(const field of Object.values(info)){if(!field||!field.type)continue;if(field.type.includes('GameStateSnapshotDTO')){const sp=readObjectField(objPtr,classKey,[field.name]);if(sp&&!sp.isNull())return sp;}}}catch(e){send({type:'debug',msg:'readEmbeddedSnapshotFromObject '+classKey+': '+e});}return null;}
 
 function isSnapshotSearchableType(typeName){if(!typeName)return false;if(typeName==='System.String')return false;if(typeName.startsWith('System.Boolean')||typeName.startsWith('System.Int')||typeName.startsWith('System.UInt')||typeName.startsWith('System.Single')||typeName.startsWith('System.Double')||typeName.startsWith('System.Byte')||typeName.startsWith('System.SByte')||typeName.startsWith('System.Char')||typeName.startsWith('System.Guid'))return false;if(typeName.includes('GameStateSnapshotDTO'))return true;if(typeName.startsWith('BazaarGameShared.Infra.Messages.')||typeName.startsWith('TheBazaar.')||typeName.startsWith('BazaarGameClient.'))return true;return false;}
@@ -2055,14 +1941,6 @@ function emitObjectGraphSummary(label,objPtr,depth){try{graphSummaryLogCounts[la
 function hasSeenMessageId(messageId){return !!(messageId&&seenMessageIds[messageId]);}
 
 function rememberMessageId(messageId){if(!messageId||seenMessageIds[messageId])return;seenMessageIds[messageId]=true;seenMessageOrder.push(messageId);if(seenMessageOrder.length>MAX_SEEN_MESSAGE_IDS){const expired=seenMessageOrder.shift();if(expired)delete seenMessageIds[expired];}}
-
-function hasSeenCommandKey(commandKey){return !!(commandKey&&seenCommandKeys[commandKey]);}
-
-function rememberCommandKey(commandKey){if(!commandKey||seenCommandKeys[commandKey])return;seenCommandKeys[commandKey]=true;seenCommandOrder.push(commandKey);if(seenCommandOrder.length>MAX_SEEN_COMMAND_KEYS){const expired=seenCommandOrder.shift();if(expired)delete seenCommandKeys[expired];}}
-
-function readCommandEventFromMatch(match){const className=match.className||'';const commandInfo=resolveCommandKindInfo(className);if(!commandInfo)return null;const objPtr=match.ptr;const instanceId=readDynamicStringField(objPtr,['InstanceId','CardInstanceId','EncounterId']);const targetSockets=readDynamicIntListField(objPtr,['TargetSockets','TargetSocketIds','Targets']);const singleSocket=readDynamicI32Field(objPtr,['TargetSocket','Socket']);if(singleSocket!==null&&targetSockets.indexOf(singleSocket)<0)targetSockets.push(singleSocket);const section=readDynamicI32Field(objPtr,['Section']);const commandKey=[commandInfo.commandKey,instanceId||'',targetSockets.join(','),section===null?'':String(section),objPtr.toString()].join('|');if(hasSeenCommandKey(commandKey))return null;rememberCommandKey(commandKey);return{command_id:++commandCounter,event_type:commandInfo.eventType,command_class:commandInfo.simpleName,instance_id:instanceId||null,target_sockets:targetSockets,section:section,hook_source:'arg'+match.index+':'+className,timestamp:Date.now()};} // QW5: Date.now() avoids string alloc + Intl plumbing on game thread
-
-function tryExtractCommandEvent(method,args){const matches=getCommandMatches(method,args);if(matches.length===0){emitCommandProbe(method,'no-matches',matches,args);return null;}let sawCommandLike=false;for(const match of matches){if(!isCommandClassName(match.className))continue;sawCommandLike=true;const event=readCommandEventFromMatch(match);if(event)return event;}emitCommandProbe(method,sawCommandLike?'decode-failed':'non-command-matches',matches,args);return null;}
 
 function tryExtractSnapshot(method,args){
     const matches=getSnapshotMatches(method,args);
@@ -2206,8 +2084,7 @@ function tryExtractSnapshot(method,args){
     return{snapshot:null,reason:'no-matching-arg'};
 }
 
-function hookMethod(method){const c=mono_compile_method(method.ptr);if(!c||c.isNull()){send({type:'error',msg:'JIT fail: '+formatMethod(method)});return false;}const codeKey=c.toString();if(hookedCode[codeKey])return hookedCode[codeKey]==='capture';hookedCode[codeKey]='capture';send({type:'info',msg:'Hooking '+formatMethod(method)+' at '+c});Interceptor.attach(c,{onEnter:function(args){const t0=Date.now();let t1=t0;try{resetRangeCache();const methodKey=formatMethod(method);captureCallCounts[methodKey]=(captureCallCounts[methodKey]||0)+1;const callCount=captureCallCounts[methodKey];// QW8: skip tryExtractCommandEvent on methods with no command hints (saves ~0.1ms per call)
-const commandEvent=(method.captureCommands&&method.commandHints&&method.commandHints.length>0)?tryExtractCommandEvent(method,args):null;if(method.commandOnly){t1=Date.now();if(commandEvent){commandEvent.t_hook=t0;commandEvent.hook_duration=t1-t0;commandEvent.hook_method=method.name;send({type:'command_event',data:commandEvent});}if((t1-t0)>=SLOW_HOOK_MS){send({type:'perf',stage:'hook',hook:methodKey,hook_duration:t1-t0,call_count:callCount,status:'command-only'});}return;}const hit=tryExtractSnapshot(method,args);t1=Date.now();let status=hit&&hit.reason?hit.reason:'no-result';if(commandEvent&&status==='no-result')status='command';if(VERBOSE_HOOK_CALLS&&(callCount<=5||callCount%10===0)){send({type:'capture_call',method:methodKey,count:callCount,status:status,hook_duration:t1-t0});}if((t1-t0)>=SLOW_HOOK_MS){send({type:'perf',stage:'hook',hook:methodKey,hook_duration:t1-t0,call_count:callCount,status:status});}const snap=hit&&hit.snapshot?hit.snapshot:null;if(commandEvent){commandEvent.t_hook=t0;commandEvent.hook_duration=t1-t0;commandEvent.hook_method=method.name;}if(!snap&&!commandEvent)return;if(snap){const messageId=hit&&hit.message_id?hit.message_id:snap.message_id;if(messageId)rememberMessageId(messageId);snapshotCounter++;snap.id=snapshotCounter;snap.hook=method.name;snap.hook_source=hit&&hit.source?hit.source:null;snap.timestamp=Date.now();snap.t_hook=t0;snap.hook_duration=t1-t0;snap.hook_method=method.name;}if(commandEvent&&snap){send({type:'batch',items:[{type:'command_event',data:commandEvent},{type:'game_state',data:snap}]});}else if(snap){send({type:'game_state',data:snap});}else if(commandEvent){send({type:'command_event',data:commandEvent});}}catch(e){t1=Date.now();send({type:'error',msg:method.name+': '+e+' (hook_duration='+(t1-t0)+'ms)'});}}});return true;}
+function hookMethod(method){const c=mono_compile_method(method.ptr);if(!c||c.isNull()){send({type:'error',msg:'JIT fail: '+formatMethod(method)});return false;}const codeKey=c.toString();if(hookedCode[codeKey])return hookedCode[codeKey]==='capture';hookedCode[codeKey]='capture';send({type:'info',msg:'Hooking '+formatMethod(method)+' at '+c});Interceptor.attach(c,{onEnter:function(args){const t0=Date.now();let t1=t0;try{resetRangeCache();const methodKey=formatMethod(method);captureCallCounts[methodKey]=(captureCallCounts[methodKey]||0)+1;const callCount=captureCallCounts[methodKey];const hit=tryExtractSnapshot(method,args);t1=Date.now();const status=hit&&hit.reason?hit.reason:'no-result';if(VERBOSE_HOOK_CALLS&&(callCount<=5||callCount%10===0)){send({type:'capture_call',method:methodKey,count:callCount,status:status,hook_duration:t1-t0});}if((t1-t0)>=SLOW_HOOK_MS){send({type:'perf',stage:'hook',hook:methodKey,hook_duration:t1-t0,call_count:callCount,status:status});}const snap=hit&&hit.snapshot?hit.snapshot:null;if(!snap)return;const messageId=hit&&hit.message_id?hit.message_id:snap.message_id;if(messageId)rememberMessageId(messageId);snapshotCounter++;snap.id=snapshotCounter;snap.hook=method.name;snap.hook_source=hit&&hit.source?hit.source:null;snap.timestamp=Date.now();snap.t_hook=t0;snap.hook_duration=t1-t0;snap.hook_method=method.name;send({type:'game_state',data:snap});}catch(e){t1=Date.now();send({type:'error',msg:method.name+': '+e+' (hook_duration='+(t1-t0)+'ms)'});}}});return true;}
 
 function attachProbe(method,prefix){if(!ENABLE_PROBES)return false;try{const c=mono_compile_method(method.ptr);if(!c||c.isNull())return false;const codeKey=c.toString();if(hookedCode[codeKey])return hookedCode[codeKey]==='probe';hookedCode[codeKey]='probe';Interceptor.attach(c,{onEnter:function(args){const key=prefix+'.'+method.name+'/'+method.paramCount;probeLogCounts[key]=(probeLogCounts[key]||0)+1;if(probeLogCounts[key]<=4)send({type:'probe',msg:prefix+'.'+formatMethod(method)+' fired (#'+probeLogCounts[key]+')',method:key});}});send({type:'debug',msg:'Probe: '+prefix+'.'+formatMethod(method)});return true;}catch(e){return false;}}
 
@@ -2218,8 +2095,6 @@ function hookDataUpdater(handlerKlass){const fields=getFields(handlerKlass);cons
 function hookAllCandidates(klass){const methods=getMethods(klass);const cands=['UpdateFromStateSync','HandleStateSync','OnStateSync','HandleMessage','OnMessage','ProcessMessage','UpdateFromState','OnGameState','HandleGameState','UpdateState','SyncState','ApplyState'];let hooked=0;for(const m of methods){if(cands.some(c=>m.name.includes(c))){if(hookMethod(m))hooked++;}}if(ENABLE_PROBES){const skip=['ToString','GetHashCode','Equals','Finalize','MemberwiseClone','GetType','.ctor','.cctor'];let probes=0;for(const m of methods){if(skip.includes(m.name)||m.name.startsWith('get_')||m.name.startsWith('set_'))continue;if(attachProbe(m,'GameStateHandler'))probes++;}send({type:'info',msg:'Attached '+probes+' passive GameStateHandler probe(s).'});}return hooked;}
 
 function methodHasRelevantParam(method){for(const p of method.params){if(p.includes('NetMessageGameStateSync')||p.includes('GameStateSnapshotDTO')||p.includes('NetMessageCombatSim')||p.includes('NetMessageGameSim')||p.includes('NetMessageRunInitialized'))return true;}return false;}
-
-function methodHasCommandParam(method){for(const p of method.params){if(isCommandParamType(p))return true;}return false;}
 
 function isRelevantGlobalClass(fullName){const exact=['TheBazaar.Data','TheBazaar.NetMessageProcessor','TheBazaar.AppState','TheBazaar.StartRunAppState','TheBazaar.GameStateHandler','TheBazaar.CombatSimHandler','TheBazaar.GameSimHandler','TheBazaar.RunInitializedHandler'];return exact.includes(fullName);}
 
@@ -2252,21 +2127,8 @@ function isRelevantGlobalMethod(cls,method){
     return false;
 }
 
-function isRelevantCommandMethod(cls,method){if(method.name.startsWith('add_')||method.name.startsWith('remove_')||method.name.startsWith('<'))return false;if(method.name.startsWith('get_')||method.name.startsWith('set_'))return false;if(method.name==='CanProcessMessages')return false;const className=cls.fullName||'';const hasCommandParam=methodHasCommandParam(method);const commandishName=method.name.includes('Send')||method.name.includes('Handle')||method.name.includes('Execute')||method.name.includes('Process')||method.name.includes('Dispatch')||method.name.includes('Queue');const commandishClass=className.includes('Command')||className.includes('Network')||className.includes('Client')||className.includes('Handler')||className.includes('State')||className.includes('Controller');if(hasCommandParam)return true;if(commandishName&&commandishClass)return true;return false;}
-
 function hookGlobalSearchCandidates(){const assemblies=['TheBazaarRuntime','BazaarGameClient','Assembly-CSharp'];let classCount=0;let methodCount=0;let hooked=0;for(const assemblyName of assemblies){const image=imageMap[assemblyName];if(!image)continue;const classes=enumerateClassesInImage(image,assemblyName);send({type:'info',msg:'Scanning '+classes.length+' classes in '+assemblyName+' for additional state-sync hooks...'});for(const cls of classes){classCount++;if(!isRelevantGlobalClass(cls.fullName))continue;let methods=[];try{methods=getMethods(cls.klass);}catch(e){continue;}const hits=methods.filter(m=>isRelevantGlobalMethod(cls,m));if(hits.length===0)continue;send({type:'debug',msg:'Global candidate '+cls.fullName+' in '+assemblyName+': '+hits.map(formatMethod).join(' | ')});for(const method of hits){
-const configured=cloneMethodWithMeta(method,{ownerClass:cls.fullName,snapshotHints:buildSnapshotHints(method),commandHints:buildCommandHints(method),captureCommands:true,commandOnly:false});methodCount++;if(hookMethod(configured))hooked++;}}}send({type:'info',msg:'Global scan checked '+classCount+' classes and '+methodCount+' focused candidate method(s); hooked '+hooked+'.'});return hooked;}
-const COMMAND_HOOK_ALLOWLIST = {
-    SelectItemCommand: true,
-    SelectSkillCommand: true,
-    SellCardCommand: true,
-    RerollCommand: true,
-    SelectEncounterCommand: true,
-    CommitToPedestalCommand: true,
-    ExitCurrentStateCommand: true,
-};
-function hookCommandSearchCandidates(){const assemblies=['TheBazaarRuntime','BazaarGameClient','Assembly-CSharp'];let classCount=0;let methodCount=0;let hooked=0;for(const assemblyName of assemblies){const image=imageMap[assemblyName];if(!image)continue;const classes=enumerateClassesInImage(image,assemblyName);send({type:'info',msg:'Scanning '+classes.length+' classes in '+assemblyName+' for command hooks...'});for(const cls of classes){classCount++;let methods=[];try{methods=getMethods(cls.klass);}catch(e){continue;}const hits=methods.filter(m=>isRelevantCommandMethod(cls,m));if(hits.length===0)continue;// F7: filter to allowed command types only
-const allowedHits=hits.filter(m=>{for(const p of m.params){const simple=(p.split('.').pop()||'').split('`')[0];if(COMMAND_HOOK_ALLOWLIST[simple])return true;}return false;});if(allowedHits.length===0)continue;send({type:'debug',msg:'Command candidate '+cls.fullName+' in '+assemblyName+': '+allowedHits.map(formatMethod).join(' | ')});for(const method of allowedHits){const configured=cloneMethodWithMeta(method,{ownerClass:cls.fullName,commandHints:buildCommandHints(method),captureCommands:true,commandOnly:true});methodCount++;if(hookMethod(configured))hooked++;}}}send({type:'info',msg:'Command scan checked '+classCount+' classes and '+methodCount+' candidate method(s); hooked '+hooked+'.'});return hooked;}
+const configured=cloneMethodWithMeta(method,{ownerClass:cls.fullName,snapshotHints:buildSnapshotHints(method)});methodCount++;if(hookMethod(configured))hooked++;}}}send({type:'info',msg:'Global scan checked '+classCount+' classes and '+methodCount+' focused candidate method(s); hooked '+hooked+'.'});return hooked;}
 
 // QW1: Pre-warm DTO field caches at attach time to eliminate first-encounter 50-100ms spikes.
 // Called before hooks are installed so the hook thread never hits a cold class walk.
@@ -2322,5 +2184,5 @@ const __captureMonoInitialized=(function(){
     // QW1: pre-warm before hooks fire to eliminate cold-walk spikes
     prewarmFieldInfoCache();
     _fieldInfoPrewarmed=true;
-    const gh=hookGlobalSearchCandidates();const ch=hookCommandSearchCandidates();if(ENABLE_BROAD_HOOKS&&foundClasses['GameStateHandler']){const handlerKlass=foundClasses['GameStateHandler'].klass;const h=hookAllCandidates(handlerKlass);const dh=hookDataUpdater(handlerKlass);const total=h+dh+gh+ch;if(total>0)send({type:'ready',msg:'Mono hooks active. '+total+' capture method(s) hooked.'});else send({type:'info',msg:'Probes attached - play to identify methods.'});}else if(gh+ch>0){send({type:'ready',msg:'Mono hooks active. '+(gh+ch)+' capture method(s) hooked.'});}else if(foundClasses['GameStateHandler']){send({type:'info',msg:'Searching broader namespaces...'});const nsG=['TheBazaar','TheBazaar.Runtime','TheBazaar.Game','TheBazaar.Infra','TheBazaar.Network','TheBazaar.State','Bazaar','Game','','Runtime'];let found=false;for(const[an,img]of Object.entries(imageMap)){if(!['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient'].includes(an))continue;for(const ns of nsG){const k=mono_class_from_name(img,Memory.allocUtf8String(ns),Memory.allocUtf8String('GameStateHandler'));if(!k.isNull()){send({type:'info',msg:'FOUND at ns="'+ns+'" in '+an});foundClasses['GameStateHandler']={klass:k,ns};if(ENABLE_BROAD_HOOKS){const h=hookAllCandidates(k);const dh=hookDataUpdater(k);const gh2=hookGlobalSearchCandidates();const ch2=hookCommandSearchCandidates();if(h+dh+gh2+ch2>0)send({type:'ready',msg:'Mono hooks active. '+(h+dh+gh2+ch2)+' capture method(s) hooked.'});}found=true;break;}}if(found)break;}if(!found)send({type:'error',msg:'GameStateHandler not found. Assemblies: '+Object.keys(imageMap).join(', ')});}else{send({type:'error',msg:'No preferred capture hooks resolved. Assemblies: '+Object.keys(imageMap).join(', ')});}return true;})();
+    const gh=hookGlobalSearchCandidates();if(ENABLE_BROAD_HOOKS&&foundClasses['GameStateHandler']){const handlerKlass=foundClasses['GameStateHandler'].klass;const h=hookAllCandidates(handlerKlass);const dh=hookDataUpdater(handlerKlass);const total=h+dh+gh;if(total>0)send({type:'ready',msg:'Mono hooks active. '+total+' capture method(s) hooked.'});else send({type:'info',msg:'Probes attached - play to identify methods.'});}else if(gh>0){send({type:'ready',msg:'Mono hooks active. '+gh+' capture method(s) hooked.'});}else if(foundClasses['GameStateHandler']){send({type:'info',msg:'Searching broader namespaces...'});const nsG=['TheBazaar','TheBazaar.Runtime','TheBazaar.Game','TheBazaar.Infra','TheBazaar.Network','TheBazaar.State','Bazaar','Game','','Runtime'];let found=false;for(const[an,img]of Object.entries(imageMap)){if(!['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient'].includes(an))continue;for(const ns of nsG){const k=mono_class_from_name(img,Memory.allocUtf8String(ns),Memory.allocUtf8String('GameStateHandler'));if(!k.isNull()){send({type:'info',msg:'FOUND at ns="'+ns+'" in '+an});foundClasses['GameStateHandler']={klass:k,ns};if(ENABLE_BROAD_HOOKS){const h=hookAllCandidates(k);const dh=hookDataUpdater(k);const gh2=hookGlobalSearchCandidates();if(h+dh+gh2>0)send({type:'ready',msg:'Mono hooks active. '+(h+dh+gh2)+' capture method(s) hooked.'});}found=true;break;}}if(found)break;}if(!found)send({type:'error',msg:'GameStateHandler not found. Assemblies: '+Object.keys(imageMap).join(', ')});}else{send({type:'error',msg:'No preferred capture hooks resolved. Assemblies: '+Object.keys(imageMap).join(', ')});}return true;})();
 if(false&&foundClasses['GameStateHandler']){const h=hookAllCandidates(foundClasses['GameStateHandler'].klass);if(h>0)send({type:'ready',msg:'Mono hooks active. '+h+' method(s) hooked.'});else send({type:'info',msg:'Probes attached - play to identify methods.'});}else if(false){send({type:'info',msg:'Searching broader namespaces...'});const nsG=['TheBazaar','TheBazaar.Runtime','TheBazaar.Game','TheBazaar.Infra','TheBazaar.Network','TheBazaar.State','Bazaar','Game','','Runtime'];let found=false;for(const[an,img]of Object.entries(imageMap)){if(!['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient'].includes(an))continue;for(const ns of nsG){const k=mono_class_from_name(img,Memory.allocUtf8String(ns),Memory.allocUtf8String('GameStateHandler'));if(!k.isNull()){send({type:'info',msg:'FOUND at ns="'+ns+'" in '+an});foundClasses['GameStateHandler']={klass:k,ns};hookAllCandidates(k);found=true;break;}}if(found)break;}if(!found)send({type:'error',msg:'GameStateHandler not found. Assemblies: '+Object.keys(imageMap).join(', ')});}
