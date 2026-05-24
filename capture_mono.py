@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Debugging notes (dict layouts, mid-run pickup gaps, FAST_GAMESIM_PATH):
+# see docs/mono-internals.md.
 """
 capture_mono.py â€” Frida Mono hook for The Bazaar's managed GameStateHandler.
 

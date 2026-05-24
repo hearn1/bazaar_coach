@@ -116,13 +116,8 @@ Manual diagnostics:
 - `api_game_states.captured_at` is mixed-format: some ISO 8601, some Unix ms. Time-range queries must handle both.
 - `combat_results` has no `timestamp` column. Use the ratio-based estimate (`i * total_combats / total_decisions`) when you need combat-count-at-decision.
 - Overlay header layout: the run-outcome pill lives in the subtitle line next to the run counter, not in `.header-actions`. The close `×` is corner-pinned absolute (`.header-quit`). When editing `renderHeader()`, keep these in place.
-- Mid-run pickup misses Hero / UnlockedSlots / Prestige / Level. `NetMessageGameStateSync` and `NetMessageRunInitialized` are the only messages carrying a full `PlayerSnapshotDTO`; they fire at run init / reconnect / certain transitions. The mid-run `NetMessageGameSim` / `CombatSim` `Player` field resolves to `SimUpdatePlayer` — a per-tick delta with only `CombatantId` + an `Attributes` dict for attrs that *changed this tick*. First deltas usually carry `{Gold, Health, HealthMax}` (cached in `_lastGoodAttrs`); Prestige/Level rarely tick. Recovery is automatic on the next full `GameStateSync`. Grep `logs/coach_*.log` for `player-class fields` and `fast-PlayerAttributes` when debugging similar gaps.
 
-## Capture Mono — technical notes
-
-- Frida agent is a Python raw-string template: `FRIDA_MONO_AGENT = r"""..."""`.
-- Hook source must contain `"dynamic-data"` for Python-side `_merge_partial_snapshot` to carry forward player attrs.
-- Dict layout cache: `entriesOff=24, countOff=64, entrySize=16, hashOff=0, keyOff=8, valueOff=12, headerAdj=16`. Field offsets from `getFields()` include the 16-byte MonoObject header; subtracted for value-type array entries.
+> Capture Mono debugging notes (dict layouts, mid-run pickup gaps, FAST_GAMESIM_PATH): see [docs/mono-internals.md](docs/mono-internals.md).
 
 ## Catalog curation
 
