@@ -19,6 +19,7 @@ datas = [
     (str(ROOT / "builds" / "vanessa_builds.json"), "builds"),
     (str(ROOT / "builds" / "builds_schema.json"), "builds"),
     (str(ROOT / "capture_mono.py"), "."),
+    (str(ROOT / "capture_mono_agent.js"), "."),
     (str(ROOT / "README.md"), "."),
     (str(ROOT / "ROADMAP.md"), "."),
 ]

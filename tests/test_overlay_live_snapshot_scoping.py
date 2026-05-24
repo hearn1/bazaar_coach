@@ -183,7 +183,7 @@ def test_decision_fallback_surfaces_hour_from_latest_decision(tmp_path, monkeypa
         state = build_overlay_state(
             conn,
             resolve_fn=lambda _c, _t: "",
-            safe_json_fn=lambda _r: [],
+            safe_json_fn=lambda _r, default: default,
             lookup_image_by_name_fn=lambda _c, _n: None,
         )
         assert state["snapshot_source"] == "decision_fallback"
