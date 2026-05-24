@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 import scorer
+from web.build_helpers import clean_build_items
 
 
 # Minimal catalog that satisfies schema_version 1.
@@ -107,6 +108,32 @@ def test_live_catalog_loads_via_scorer(hero, monkeypatch):
     assert scorer.has_build_catalog(builds), (
         f"load_builds('{hero}') returned an empty/stub catalog — "
         "validation may have rejected it or the file is missing"
+    )
+
+
+@pytest.mark.parametrize("hero", LIVE_CATALOG_NAMES)
+def test_archetypes_have_commitment_bucket(hero):
+    """Each early_mid/late archetype must have non-empty core_items OR carry_items.
+
+    A support-only archetype can rank #1 in score_archetypes with raw_score=1.0
+    when the player owns its support items, displaying misleading empty buckets
+    in the Coach tab. See issue #82.
+    """
+    scorer._load_builds_cached.cache_clear()
+    scorer._load_builds_schema.cache_clear()
+
+    builds = scorer.load_builds(hero)
+    offenders = []
+    for phase_name in ("early_mid", "late"):
+        phase = builds.get("game_phases", {}).get(phase_name, {})
+        for arch in phase.get("archetypes", []):
+            core = clean_build_items(arch.get("core_items", []))
+            carry = clean_build_items(arch.get("carry_items", []))
+            if not core and not carry:
+                offenders.append(f"{phase_name}/{arch.get('name', '<unnamed>')}")
+    assert not offenders, (
+        f"{hero}: archetypes with no core_items AND no carry_items: {offenders}. "
+        "See issue #82."
     )
 
 

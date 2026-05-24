@@ -784,10 +784,16 @@
         {
           "name": "Repair Drone / Buster / Freefall Simulator",
           "phase": "late",
+          "core_items": [
+            "Buster",
+            "Freefall Simulator",
+            "Repair Drone"
+          ],
           "carry_items": [],
           "support_items": [
             "Headset"
-          ]
+          ],
+          "notes": "Partial stub from automated enricher — carry_items, timing_profile, and condition still need curator review. Items in the archetype name now correctly appear as core (mirrored from Stelle's same-named archetype). See issue #82."
         }
       ]
     }
