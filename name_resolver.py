@@ -139,7 +139,7 @@ class NameResolver:
 
     def notify_template(self, instance_id: str, template_id: str):
         """
-        Called when Mono capture or bridge learns an instance→template mapping.
+        Called when Mono capture learns an instance→template mapping.
 
         This eagerly resolves the name and caches it so subsequent
         resolve() calls return immediately.

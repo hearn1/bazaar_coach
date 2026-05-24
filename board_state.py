@@ -1,9 +1,9 @@
 """
 board_state.py — Single source of truth for player inventory during a run.
 
-Replaces the four separate board projections that previously existed across
-run_state.py (in-memory dicts), server.py (action event replay),
-scorer.py (action fallback), and bridge.py (board population).
+Replaces the three separate board projections that previously existed across
+run_state.py (in-memory dicts), server.py (action event replay), and
+scorer.py (action fallback).
 
 RunState owns a BoardState instance, calls its mutators on every inventory-
 changing event, and asks for a JSON snapshot at each decision insert.
