@@ -44,7 +44,7 @@ In typical (per-user) installs this resolves to:
 
 A per-machine install (if launched elevated and the override is accepted) resolves to `C:\Program Files\Bazaar Coach\<version>\`.
 
-After install, an optional post-install action runs `BazaarCoach.exe doctor` to validate the setup.
+After install, an optional post-install action runs `BazaarCoachCLI.exe doctor` to validate the setup.
 
 ## Two shipped binaries
 

@@ -49,7 +49,7 @@ Auto-detected Player.log: `C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaa
 
 - `web/static/index.html`, `web/static/overlay.html` — large self-contained HTML with inline CSS+JS. Read only when changing the dashboard or overlay UI.
 - `<hero>_builds.json` under `builds/` — large data files. Grep for specific items; don't read whole.
-- `capture_mono.py` lines 49-2376 (or `capture_mono_agent.js` after #107) — embedded Frida JS agent. Read only when working on Mono hooks themselves.
+- `capture_mono_agent.js` — embedded Frida JS agent (loaded as a raw string by `capture_mono.py`). Read only when working on Mono hooks themselves.
 - `tests/`, `packaging/`, `dist/`, `captures/`, `logs/`, `venv312/` — generated, packaging, or runtime artifacts.
 
 ## Architecture
@@ -63,16 +63,15 @@ coach.py                   # entrypoint - launches the subsystems below
   │         ├─ shop_session.py   # shop-visit state machine
   │         └─ name_resolver.py  # instance_id → human name (lazy retry)
   ├─ capture_mono.py       # Frida + Mono hooks → game-state snapshots → db.py
+  │    └─ capture_mono_agent.js  # embedded Frida JS agent (loaded as raw string)
   ├─ web/server.py         # Flask routes only
   │    ├─ web/overlay_state.py   # /api/overlay/state payload assembly
   │    ├─ web/review_builder.py  # overlay review row construction
   │    ├─ web/build_helpers.py   # catalog loading, archetype scoring, phase notes
   │    ├─ web/static/index.html  # dashboard (self-contained, inline JS)
   │    └─ web/static/overlay.html # overlay UI (self-contained, inline JS)
-  └─ overlay.py            # PyWebView always-on-top launcher
-
-Manual diagnostics:
-  scorer.py                # LiveScorer scores during the run; CLI prints a manual report
+  ├─ overlay.py            # PyWebView always-on-top launcher
+  └─ scorer.py             # LiveScorer (scores decisions live; no CLI)
 ```
 
 ## Data flow
@@ -94,7 +93,7 @@ Manual diagnostics:
 ## Tech stack
 
 - Python 3.10+, SQLite (`bazaar_runs.db`), Flask + waitress, PyWebView.
-- Frida for Mono managed-memory hooks (JS agent embedded in `capture_mono.py`).
+- Frida for Mono managed-memory hooks (JS agent in `capture_mono_agent.js`, loaded by `capture_mono.py`).
 - No frontend build step — `index.html` / `overlay.html` are self-contained with inline CSS/JS.
 - Fonts: Syne (display), DM Sans (body), IBM Plex Mono (data/labels).
 

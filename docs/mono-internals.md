@@ -19,7 +19,9 @@ and `fast-PlayerAttributes` when debugging similar gaps.
 
 ## Frida agent layout
 
-- Frida agent is a Python raw-string template: `FRIDA_MONO_AGENT = r"""..."""`.
+- Frida agent source lives in `capture_mono_agent.js`; `capture_mono.py`
+  loads it at import time into `FRIDA_MONO_AGENT` and substitutes a few
+  Python-injected constants before handing it to Frida.
 - Hook source must contain `"dynamic-data"` for Python-side
   `_merge_partial_snapshot` to carry forward player attrs.
 - Dict layout cache:
