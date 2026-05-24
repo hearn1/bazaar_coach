@@ -343,6 +343,58 @@ def _get_run_end_snapshot(conn, run: dict) -> Optional[dict]:
     return None
 
 
+def _get_in_run_prestige_fallback(conn, run: dict) -> Optional[int]:
+    """Pull prestige from the latest in-run api_game_states row, terminal-OK.
+
+    The live-snapshot path excludes EndRun rows, and decisions have no
+    prestige column. When we land in ``decision_fallback`` but at least one
+    in-run snapshot exists (e.g. capture went down mid-run), we can still
+    surface the most recent prestige value without leaking prior-run data.
+    Bounds-scoped via ``decisions.api_game_state_id`` plus next-run cutoff,
+    mirroring the pattern in :func:`_get_run_mono_state_rows`.
+    """
+    if not _has_column(conn, "api_game_states", "full_json"):
+        return None
+    bounds = conn.execute(
+        """
+        SELECT MIN(api_game_state_id) AS first_id,
+               MAX(api_game_state_id) AS last_id
+        FROM decisions
+        WHERE run_id = ? AND api_game_state_id IS NOT NULL
+        """,
+        (run["id"],),
+    ).fetchone()
+    if not bounds or bounds["first_id"] is None:
+        return None
+    start_id = bounds["first_id"]
+    end_id = bounds["last_id"]
+    next_run_first_id = _get_next_run_first_api_state_id(conn, run, start_id)
+    row = conn.execute(
+        """
+        SELECT json_extract(full_json, '$.player.Prestige') AS prestige
+        FROM api_game_states
+        WHERE id >= ?
+          AND id <= ?
+          AND (? IS NULL OR id < ?)
+          AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
+          AND json_extract(full_json, '$.player.Prestige') IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (
+            start_id,
+            end_id,
+            next_run_first_id,
+            next_run_first_id,
+            run.get("hero"),
+            run.get("hero"),
+        ),
+    ).fetchone()
+    if row and row["prestige"] is not None:
+        return row["prestige"]
+    return None
+
+
 def _build_owned_inventory_projection(conn, run_id: int) -> dict:
     """Read current owned inventory from board_snapshot_json on the latest decision.
 
@@ -415,7 +467,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
     raw_decisions = conn.execute("""
         SELECT id, decision_seq, decision_type, game_state, board_section,
                chosen_id, chosen_template, offered, offered_names, rejected,
-               score_label, score_notes, day, gold, health
+               score_label, score_notes, day, hour, gold, health
         FROM decisions
         WHERE run_id=?
         ORDER BY decision_seq
@@ -461,8 +513,10 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
         else:
             if latest_decision:
                 current_day = latest_decision.get("day")
+                current_hour = latest_decision.get("hour")
                 current_gold = latest_decision.get("gold")
                 current_health = latest_decision.get("health")
+            current_prestige = _get_in_run_prestige_fallback(conn, run)
             pvp_w, pvp_l = run_record["pvp_wins"], run_record["pvp_losses"]
             snapshot_source = "decision_fallback"
     else:
@@ -480,8 +534,10 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
         else:
             if latest_decision:
                 current_day = latest_decision.get("day")
+                current_hour = latest_decision.get("hour")
                 current_gold = latest_decision.get("gold")
                 current_health = latest_decision.get("health")
+            current_prestige = _get_in_run_prestige_fallback(conn, run)
             pvp_w, pvp_l = run_record["pvp_wins"], run_record["pvp_losses"]
             snapshot_source = "decision_fallback"
 
