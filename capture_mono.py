@@ -186,6 +186,7 @@ const mono_string_to_utf8 = monoExport('mono_string_to_utf8','pointer',['pointer
 const mono_free = monoExport('mono_free','void',['pointer']);
 const mono_class_get_element_class = monoOptionalExport('mono_class_get_element_class','pointer',['pointer']);
 const mono_class_value_size = monoOptionalExport('mono_class_value_size','int',['pointer','pointer']);
+const mono_class_get_parent = monoOptionalExport('mono_class_get_parent','pointer',['pointer']);
 
 const domain = mono_get_root_domain();
 if (!domain.isNull()) { mono_thread_attach(domain); send({type:'info',msg:'Attached to Mono domain'}); }
@@ -241,7 +242,8 @@ function cloneMethodWithMeta(method, extra) {
     return Object.assign({}, method, extra || {});
 }
 
-function getFields(klass) {
+// Read declared fields on a single klass (no inheritance walk).
+function getDeclaredFields(klass) {
     const fields = [], iter = Memory.alloc(Process.pointerSize);
     iter.writePointer(ptr(0));
     while (true) {
@@ -256,6 +258,34 @@ function getFields(klass) {
         });
     }
     return fields;
+}
+
+// mono_class_get_fields enumerates declared fields only — inherited fields are
+// invisible unless we walk the parent chain. If The Bazaar moves Hero /
+// UnlockedSlots / Attributes onto a base class in a patch, every Player field
+// read silently returns null and the snapshot collapses to whatever the
+// Attributes dict happens to surface that tick.
+const _GET_FIELDS_MAX_PARENT_DEPTH = 6;
+function getFields(klass) {
+    const out = [];
+    const seenNames = Object.create(null);
+    let cur = klass;
+    for (let depth = 0; depth <= _GET_FIELDS_MAX_PARENT_DEPTH && cur && !cur.isNull(); depth++) {
+        const declared = getDeclaredFields(cur);
+        for (const f of declared) {
+            if (!f || !f.name) continue;
+            if (seenNames[f.name]) continue; // child overrides parent of same name
+            seenNames[f.name] = true;
+            out.push(f);
+        }
+        if (!mono_class_get_parent) break;
+        const parent = mono_class_get_parent(cur);
+        if (!parent || parent.isNull() || parent.equals(cur)) break;
+        const parentName = classFullName(parent);
+        if (!parentName || parentName === 'System.Object' || parentName === 'System.ValueType') break;
+        cur = parent;
+    }
+    return out;
 }
 
 function readOwnedUtf8(ptrValue) {
@@ -1423,7 +1453,7 @@ function getManagedArrayDataPtr(arrayPtr){if(!isReadablePointer(arrayPtr))return
 function readCardDictionary(sp, fields){try{if(DISABLE_DICTIONARY_PROBING)return[];if(!mono_class_get_element_class||!mono_class_value_size)return[];let eO=-1,cO=-1;for(const f of fields){if(f.name==='_entries'||f.name==='entries')eO=f.offset;if(f.name==='_count'||f.name==='count')cO=f.offset;}if(eO<0||cO<0)return[];const ea=safeReadPointer(sp,eO);const count=sp.add(cO).readS32();if(!isReadablePointer(ea)||count<=0)return[];const arrayKlass=mono_object_get_class(ea);if(!arrayKlass||arrayKlass.isNull())return[];const entryKlass=mono_class_get_element_class(arrayKlass);if(!entryKlass||entryKlass.isNull())return[];const entryFields=getFields(entryKlass);const hashField=entryFields.find(f=>f.name==='hashCode'||f.name==='_hashCode');const keyField=entryFields.find(f=>f.name==='key'||f.name==='Key');const valueField=entryFields.find(f=>f.name==='value'||f.name==='Value'||(f.type&&(f.type.includes('CardSnapshotDTO')||f.type.includes('SimUpdateCard'))));if(!valueField)return[];const inlineValue=isInlineCardValueType(valueField.type);const valueFieldInfo=inlineValue?getFieldInfoForTypeName(valueField.type):null;const align=Memory.alloc(4);align.writeU32(0);const entrySize=mono_class_value_size(entryKlass,align);if(!entrySize||entrySize<=0)return[];const arrLen=getManagedArrayLength(ea);const base=getManagedArrayDataPtr(ea);if(!isReadablePointer(base)||arrLen<=0)return[];const cards=[];const limit=Math.min(arrLen,Math.max(count+16,count),500);for(let i=0;i<limit&&cards.length<count;i++){try{const eb=base.add(i*entrySize);let hashValue=null;if(hashField){for(const off of getCandidateFieldOffsets(hashField)){if(isReadableAddress(eb.add(off),4)){hashValue=eb.add(off).readS32();break;}}if(hashValue!==null&&hashValue<0)continue;}const entryKey=keyField?readEntryStringKey(eb,keyField):null;if(cards.length===0&&keyField&&valueField){logCardEntryProbe('entry-probe:'+(valueField.type||'?'),'Entry probe first-live key='+entryKey+' hash='+hashValue+' keyOffset='+keyField.offset+' valueOffset='+valueField.offset+' entrySize='+entrySize+' entryFields='+describeFieldLayout(entryFields));}let card=null;if(inlineValue&&valueFieldInfo&&valueFieldInfo.map){card=readCardFromValueSlot(eb,valueField,valueFieldInfo,true);}else{for(const off of getCandidateFieldOffsets(valueField)){const vp=safeReadPointer(eb,off);if(vp){card=readCardSnapshot(vp);if(cardHasUsefulData(card))break;}}}if(!card&&entryKey){card={instance_id:entryKey,type:inferCardTypeFromInstanceId(entryKey)};}if(card&&(!card.instance_id)&&entryKey){card.instance_id=entryKey;}if(card&&(!card.type)&&card.instance_id){card.type=inferCardTypeFromInstanceId(card.instance_id);}if(card&&card.instance_id)cards.push(card);}catch(e){}}if(cards.length===0&&count>0){const dictKlass=mono_object_get_class(sp);const valueType=valueField.type||'?';logCardCollectionInfo('dict-empty:'+(classFullName(dictKlass)||'?')+':'+valueType,'Card dictionary '+(classFullName(dictKlass)||'?')+' value='+valueType+' count='+count+' yielded 0 cards; fields: '+describeFieldLayout(fields));}return cards;}catch(e){send({type:'debug',msg:'readCardDictionary:'+e});return[];}}
 function readCardHashSet(sp){if(!isReadablePointer(sp))return[];try{const klass=mono_object_get_class(sp);const fields=getFields(klass);let sO=-1,cO=-1,lO=-1;for(const f of fields){if(f.name==='_slots'||f.name==='m_slots')sO=f.offset;if(f.name==='_count'||f.name==='m_count')cO=f.offset;if(f.name==='_lastIndex'||f.name==='m_lastIndex')lO=f.offset;}if(sO<0){const dictCards=readCardDictionary(sp,fields);if(dictCards.length>0)return dictCards;logCollectionLayoutOnce('Unsupported card collection',klass,fields);return[];}const sa=safeReadPointer(sp,sO);if(!isReadablePointer(sa))return[];const count=cO>=0?sp.add(cO).readS32():0;const lastIdx=lO>=0?sp.add(lO).readS32():count;if(count<=0)return[];const ml=getManagedArrayLength(sa);const ss=4+4+Process.pointerSize;const base=getManagedArrayDataPtr(sa);if(!isReadablePointer(base)||ml<=0)return[];const cards=[];const lim=Math.min(ml,Math.max(lastIdx,count)+16,500);for(let i=0;i<lim&&cards.length<count;i++){try{const sb=base.add(i*ss);if(isReadableAddress(sb,4)&&sb.readS32()<0)continue;const vp=safeReadPointer(sb,8);if(vp){const card=readCardSnapshot(vp);if(card&&card.instance_id)cards.push(card);}}catch(e){}}if(cards.length===0&&count>0){logCardCollectionInfo('hashset-empty:'+(classFullName(klass)||'?'),'Card set '+(classFullName(klass)||'?')+' count='+count+' lastIndex='+lastIdx+' yielded 0 cards; fields: '+describeFieldLayout(fields));}return cards;}catch(e){send({type:'debug',msg:'readCardHashSet:'+e});return[];}}
 
-function readEnumIntDict(dp, debugLabel, keepKeys, keepCount){if(!isReadablePointer(dp))return{};try{if(!mono_class_get_element_class||!mono_class_value_size){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' missing mono helpers'});return{};}const dictKlass=mono_object_get_class(dp);const dictFields=getFields(dictKlass);const entriesField=findNamedField(dictFields,['_entries','entries']);const countField=findNamedField(dictFields,['_count','count']);if(!entriesField||!countField){if(debugLabel)logCollectionLayoutOnce('Unsupported enum-int dict '+debugLabel,dictKlass,dictFields);return{};}const entriesArray=safeReadPointer(dp,entriesField.offset);const count=dp.add(countField.offset).readS32();if(!isReadablePointer(entriesArray)){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' entries array was null (count='+count+')'});return{};}if(count<=0){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' count='+count});return{};}const arrayKlass=mono_object_get_class(entriesArray);if(!arrayKlass||arrayKlass.isNull()){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' array klass was null'});return{};}const entryKlass=mono_class_get_element_class(arrayKlass);if(!entryKlass||entryKlass.isNull()){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' entry klass was null'});return{};}const entryFields=getFields(entryKlass);const hashField=findNamedField(entryFields,['hashCode','_hashCode']);const keyField=findNamedField(entryFields,['key','Key']);const valueField=findNamedField(entryFields,['value','Value']);if(!keyField||!valueField){if(debugLabel)logDictionaryLayoutOnce('Unsupported enum-int dict '+debugLabel,dictKlass,dictFields,entryKlass,entryFields,{count:count,arrLen:'?',entrySize:'?'},[]);return{};}const align=Memory.alloc(4);align.writeU32(0);const entrySize=mono_class_value_size(entryKlass,align);if(!entrySize||entrySize<=0){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' invalid entry size '+entrySize});return{};}const arrLen=getManagedArrayLength(entriesArray);const base=getManagedArrayDataPtr(entriesArray);if(!isReadablePointer(base)||arrLen<=0)return{};const result={};const samples=[];const limit=Math.min(arrLen,Math.max(count+16,count),500);const useFilter=!!keepKeys;let found=0;let kept=0;for(let i=0;i<limit&&found<count;i++){try{const entryBase=base.add(i*entrySize);if(hashField&&isReadableAddress(entryBase.add(hashField.offset),4)&&entryBase.add(hashField.offset).readS32()<0)continue;const key=readScalarField(entryBase,keyField);const value=readScalarField(entryBase,valueField);found++;if(useFilter&&!keepKeys[key])continue;result[key]=value;if(debugLabel&&samples.length<8)samples.push(key+':'+value);kept++;if(useFilter&&keepCount&&kept>=keepCount)break;}catch(e){}}if(debugLabel)logDictionaryLayoutOnce(debugLabel,dictKlass,dictFields,entryKlass,entryFields,{count:count,arrLen:arrLen,entrySize:entrySize},samples);if(!_playerAttrsDictLayout&&found>0&&entrySize>0){const headerAdj=Math.min(hashField?hashField.offset:999,keyField.offset,valueField.offset);_playerAttrsDictLayout={entriesOff:entriesField.offset,countOff:countField.offset,entrySize:entrySize,hashOff:hashField?(hashField.offset-headerAdj):null,keyOff:keyField.offset-headerAdj,valueOff:valueField.offset-headerAdj,headerAdj:headerAdj};send({type:'info',msg:'QW10 dict layout cached: entriesOff='+entriesField.offset+' countOff='+countField.offset+' entrySize='+entrySize+' hashOff='+(hashField?(hashField.offset-headerAdj):'null')+' keyOff='+(keyField.offset-headerAdj)+' valueOff='+(valueField.offset-headerAdj)+' headerAdj='+headerAdj});}return result;}catch(e){if(debugLabel)send({type:'debug',msg:'readEnumIntDict '+debugLabel+': '+e});return{};}}
+function readEnumIntDict(dp, debugLabel, keepKeys, keepCount){if(!isReadablePointer(dp))return{};try{if(!mono_class_get_element_class||!mono_class_value_size){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' missing mono helpers'});return{};}const dictKlass=mono_object_get_class(dp);const dictFields=getFields(dictKlass);const entriesField=findNamedField(dictFields,['_entries','entries']);const countField=findNamedField(dictFields,['_count','count']);if(!entriesField||!countField){if(debugLabel)logCollectionLayoutOnce('Unsupported enum-int dict '+debugLabel,dictKlass,dictFields);return{};}const entriesArray=safeReadPointer(dp,entriesField.offset);const count=dp.add(countField.offset).readS32();if(!isReadablePointer(entriesArray)){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' entries array was null (count='+count+')'});return{};}if(count<=0){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' count='+count});return{};}const arrayKlass=mono_object_get_class(entriesArray);if(!arrayKlass||arrayKlass.isNull()){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' array klass was null'});return{};}const entryKlass=mono_class_get_element_class(arrayKlass);if(!entryKlass||entryKlass.isNull()){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' entry klass was null'});return{};}const entryFields=getFields(entryKlass);const hashField=findNamedField(entryFields,['hashCode','_hashCode']);const keyField=findNamedField(entryFields,['key','Key']);const valueField=findNamedField(entryFields,['value','Value']);if(!keyField||!valueField){if(debugLabel)logDictionaryLayoutOnce('Unsupported enum-int dict '+debugLabel,dictKlass,dictFields,entryKlass,entryFields,{count:count,arrLen:'?',entrySize:'?'},[]);return{};}const align=Memory.alloc(4);align.writeU32(0);const entrySize=mono_class_value_size(entryKlass,align);if(!entrySize||entrySize<=0){if(debugLabel)send({type:'debug',msg:'enum-int dict '+debugLabel+' invalid entry size '+entrySize});return{};}const arrLen=getManagedArrayLength(entriesArray);const base=getManagedArrayDataPtr(entriesArray);if(!isReadablePointer(base)||arrLen<=0)return{};const result={};const samples=[];const limit=Math.min(arrLen,Math.max(count+16,count),500);const useFilter=!!keepKeys;let found=0;let kept=0;for(let i=0;i<limit&&found<count;i++){try{const entryBase=base.add(i*entrySize);if(hashField&&isReadableAddress(entryBase.add(hashField.offset),4)&&entryBase.add(hashField.offset).readS32()<0)continue;const key=readScalarField(entryBase,keyField);const value=readScalarField(entryBase,valueField);found++;if(debugLabel&&samples.length<8)samples.push(key+':'+value);if(useFilter&&!keepKeys[key])continue;result[key]=value;kept++;if(useFilter&&keepCount&&kept>=keepCount)break;}catch(e){}}if(debugLabel)logDictionaryLayoutOnce(debugLabel,dictKlass,dictFields,entryKlass,entryFields,{count:count,arrLen:arrLen,entrySize:entrySize},samples);if(!_playerAttrsDictLayout&&found>0&&entrySize>0){const headerAdj=Math.min(hashField?hashField.offset:999,keyField.offset,valueField.offset);_playerAttrsDictLayout={entriesOff:entriesField.offset,countOff:countField.offset,entrySize:entrySize,hashOff:hashField?(hashField.offset-headerAdj):null,keyOff:keyField.offset-headerAdj,valueOff:valueField.offset-headerAdj,headerAdj:headerAdj};send({type:'info',msg:'QW10 dict layout cached: entriesOff='+entriesField.offset+' countOff='+countField.offset+' entrySize='+entrySize+' hashOff='+(hashField?(hashField.offset-headerAdj):'null')+' keyOff='+(keyField.offset-headerAdj)+' valueOff='+(valueField.offset-headerAdj)+' headerAdj='+headerAdj});}return result;}catch(e){if(debugLabel)send({type:'debug',msg:'readEnumIntDict '+debugLabel+': '+e});return{};}}
 
 function readDynamicRunSnapshot(p){if(!p||p.isNull())return{};const r={};try{const gameModeId=readDynamicGuidField(p,['GameModeId']);if(gameModeId)r.game_mode_id=gameModeId;const day=readDynamicU32Field(p,['Day']);if(day!==null)r.day=day;const hour=readDynamicU32Field(p,['Hour']);if(hour!==null)r.hour=hour;const victories=readDynamicU32Field(p,['Victories']);if(victories!==null)r.victories=victories;const defeats=readDynamicU32Field(p,['Defeats']);if(defeats!==null)r.defeats=defeats;const visitedFates=readDynamicBoolField(p,['HasVisitedFates']);if(visitedFates!==null)r.visited_fates=visitedFates;const dataVersion=readDynamicStringField(p,['DataVersion']);if(dataVersion!==null)r.data_version=dataVersion;}catch(e){send({type:'debug',msg:'readDynRun:'+e});}return r;}
 
@@ -1483,6 +1513,13 @@ function _getBatchOffsets(objPtr) {
             if (f && f.name) map[f.name] = f;
         }
         _batchFieldOffsetCache[className] = map;
+        // One-time diagnostic: dump the resolved field map for any Player-related
+        // class so we can verify Hero / UnlockedSlots / Attributes are present.
+        // Fires once per className thanks to the cache check above.
+        if (className.indexOf('Player') !== -1) {
+            const summary = fields.map(function(f){ return f.name + '@' + f.offset + ':' + (f.type || '?'); }).join(', ');
+            send({type:'info', msg:'player-class fields ' + className + ' [' + fields.length + ']: ' + summary});
+        }
         return map;
     } catch (e) { return null; }
 }
@@ -1734,8 +1771,11 @@ function readGameSimFast(dataPtr, includeCards, includePlayerAttrs, includeTempl
                                 attrsDict = _fastReadPlayerAttrs(attrsPtr, KEEP_PLAYER_ATTR_IDS, KEEP_PLAYER_ATTR_COUNT);
                             }
                             if (!attrsDict) {
-                                // Slow path — also populates _playerAttrsDictLayout on success
-                                attrsDict = readEnumIntDict(attrsPtr, null, KEEP_PLAYER_ATTR_IDS, KEEP_PLAYER_ATTR_COUNT);
+                                // Slow path — also populates _playerAttrsDictLayout on success.
+                                // Pass a debugLabel so the once-only sample logger fires; this
+                                // is the only way to confirm whether keys 9 (Prestige) and 15
+                                // (Level) are present in the managed dict during mid-run pickup.
+                                attrsDict = readEnumIntDict(attrsPtr, 'fast-PlayerAttributes', KEEP_PLAYER_ATTR_IDS, KEEP_PLAYER_ATTR_COUNT);
                             }
                             if (attrsDict) {
                                 const resolved = {};
@@ -1744,7 +1784,11 @@ function readGameSimFast(dataPtr, includeCards, includePlayerAttrs, includeTempl
                                 }
                                 if (Object.keys(resolved).length > 0) {
                                     freshAttrs = resolved;
-                                    _lastGoodAttrs = resolved;
+                                    // Merge (don't overwrite): a single read can return a partial
+                                    // subset of KEEP_PLAYER_ATTR_IDS — e.g. early in a run the
+                                    // managed dict may not yet contain key 9 (Prestige) or 15 (Level).
+                                    // Wholesale overwrite would lock in that partial shape forever.
+                                    _lastGoodAttrs = Object.assign({}, _lastGoodAttrs || {}, resolved);
                                 } else {
                                     _attrsSyncEmptyCount++;
                                 }
@@ -1771,7 +1815,7 @@ function readGameSimFast(dataPtr, includeCards, includePlayerAttrs, includeTempl
                     if (wantAttrsSync) {
                         const attrsPtr = _fastReadObjPtr(playerPtr, playerFields, 'Attributes');
                         if (attrsPtr) {
-                            const attrs = readEnumIntDict(attrsPtr, null, KEEP_PLAYER_ATTR_IDS, KEEP_PLAYER_ATTR_COUNT);
+                            const attrs = readEnumIntDict(attrsPtr, 'legacy-PlayerAttributes', KEEP_PLAYER_ATTR_IDS, KEEP_PLAYER_ATTR_COUNT);
                             for (const [k, v] of Object.entries(attrs)) {
                                 r.player[E_PLAYER_ATTRIBUTE[parseInt(k)] || ('attr_' + k)] = v;
                             }
