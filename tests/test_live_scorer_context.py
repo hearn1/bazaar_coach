@@ -49,6 +49,20 @@ def test_live_scorer_uses_live_day_phase_context(tmp_path, monkeypatch):
             VALUES ('T_A', 'Cool Item', 'Item', 'A', '[]', '{}', 'now')
             """
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+    state = RunState("Player.log")
+    state.process({"event": "run_start", "ts": "10:00"})
+    state.process({"event": "session_id", "ts": "10:00", "session_id": "session-ctx"})
+    state.process({"event": "account_id", "ts": "10:00", "account_id": "account-ctx"})
+    state.process({"event": "hero", "ts": "10:00", "hero": "Karnok"})
+
+    # Snapshot must land AFTER _try_init_run sets the baseline, otherwise it
+    # is treated as belonging to a prior run (latent half of #83 guard).
+    conn = sqlite3.connect(path)
+    try:
         gs_id = conn.execute(
             """
             INSERT INTO api_game_states
@@ -65,11 +79,6 @@ def test_live_scorer_uses_live_day_phase_context(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
-    state.process({"event": "run_start", "ts": "10:00"})
-    state.process({"event": "session_id", "ts": "10:00", "session_id": "session-ctx"})
-    state.process({"event": "account_id", "ts": "10:00", "account_id": "account-ctx"})
-    state.process({"event": "hero", "ts": "10:00", "hero": "Karnok"})
     state.process({"event": "state_change", "ts": "10:01", "to_state": "EncounterState"})
     state.process({"event": "cards_dealt", "instance_ids": ["itm_a"]})
     state.process({

@@ -69,6 +69,13 @@ class RunState:
         self._max_persisted_seq: int = 0
         self._current_combat_type: str = "pve"
 
+        # High-water mark in api_game_states.id captured when the run begins.
+        # _build_live_decision_context only considers snapshots with id > this,
+        # which prevents the prior run's terminal snapshot from being stamped
+        # onto this run's decisions when capture_mono is late or dead at start
+        # (the latent half of #83 left unaddressed by PR #88).
+        self._snapshot_baseline_id: int = 0
+
         self._pending_event_choices: list[str] = []
         self._pending_sell_commands: list[dict] = []
         # Centralized name resolution with lazy retry
@@ -231,6 +238,35 @@ class RunState:
             existing = row["cnt"]
             self._max_persisted_seq = row["max_seq"] or 0
             self.decision_seq = self._max_persisted_seq
+
+            if existing > 0:
+                # Resumed run: anchor the baseline at the highest snapshot id
+                # already linked to this run's decisions, so an existing in-run
+                # snapshot remains attachable but truly stale ones do not.
+                baseline_row = conn.execute(
+                    """
+                    SELECT MAX(api_game_state_id) AS max_gs
+                    FROM decisions
+                    WHERE run_id = ? AND api_game_state_id IS NOT NULL
+                    """,
+                    (self.run_id,),
+                ).fetchone()
+                resumed_max = baseline_row["max_gs"] if baseline_row else None
+                if resumed_max is not None:
+                    self._snapshot_baseline_id = max(0, resumed_max - 1)
+                else:
+                    current_max = conn.execute(
+                        "SELECT COALESCE(MAX(id), 0) AS m FROM api_game_states"
+                    ).fetchone()
+                    self._snapshot_baseline_id = current_max["m"] if current_max else 0
+            else:
+                # Fresh run: any snapshot already in the table belongs to a
+                # prior run. Only snapshots inserted after this point are
+                # eligible to be stamped onto this run's decisions.
+                current_max = conn.execute(
+                    "SELECT COALESCE(MAX(id), 0) AS m FROM api_game_states"
+                ).fetchone()
+                self._snapshot_baseline_id = current_max["m"] if current_max else 0
 
             if existing > 0:
                 run_row = conn.execute(
@@ -590,17 +626,24 @@ class RunState:
 
         conn = db.get_conn()
         try:
+            # Two-fold scoping prevents prior-run snapshots from leaking onto
+            # this run's decisions (latent half of #83): (1) id must exceed the
+            # baseline captured at _try_init_run, and (2) terminal EndRun rows
+            # cannot anchor live decisions (those belong to _get_run_end_snapshot
+            # in the overlay-render path).
             rows = conn.execute(
                 """
                 SELECT id, run_state, hero, day, hour, gold, health, health_max
                 FROM api_game_states
-                WHERE (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
+                WHERE id > ?
+                  AND (run_state IS NULL OR run_state NOT IN ('EndRunDefeat', 'EndRunVictory'))
+                  AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
                 ORDER BY
                     CASE WHEN hero = ? THEN 0 ELSE 1 END,
                     id DESC
                 LIMIT 30
                 """,
-                (self.hero, self.hero, self.hero),
+                (self._snapshot_baseline_id, self.hero, self.hero, self.hero),
             ).fetchall()
             if not rows:
                 return context

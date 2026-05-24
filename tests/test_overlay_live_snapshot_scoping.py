@@ -9,7 +9,11 @@ next run's overlay header. These tests pin the scoping behavior in place.
 import sqlite3
 
 import db
-from web.overlay_state import _get_latest_live_snapshot
+from web.overlay_state import (
+    _get_in_run_prestige_fallback,
+    _get_latest_live_snapshot,
+    build_overlay_state,
+)
 
 
 def _point_db_at(tmp_path, monkeypatch):
@@ -144,6 +148,115 @@ def test_live_snapshot_excludes_other_hero_rows(tmp_path, monkeypatch):
         assert snap["victories"] == 1
         # Sanity: that Karnok row exists and is newer in id-order.
         assert k_late > b_gs1
+    finally:
+        conn.close()
+
+
+def _insert_decision_with_hour(conn, *, run_id, seq, day, hour, api_game_state_id=None):
+    conn.execute(
+        """
+        INSERT INTO decisions (run_id, decision_seq, timestamp, game_state,
+                               decision_type, day, hour, api_game_state_id)
+        VALUES (?, ?, '2026-05-23T10:00:00+00:00', 'EncounterState', 'item', ?, ?, ?)
+        """,
+        (run_id, seq, day, hour, api_game_state_id),
+    )
+
+
+def test_decision_fallback_surfaces_hour_from_latest_decision(tmp_path, monkeypatch):
+    """Render-side regression: ``hour`` is stamped on ``decisions`` but the
+    ``decision_fallback`` branch in ``build_overlay_state`` previously only
+    pulled day/gold/health — hour silently dropped out of the header.
+    """
+    _point_db_at(tmp_path, monkeypatch)
+    db.init_db()
+    conn = sqlite3.connect(tmp_path / "bazaar_runs.db")
+    conn.row_factory = sqlite3.Row
+    try:
+        run_a = _insert_run(conn, hero="Karnok", started_at="2026-05-23T11:00:00+00:00")
+        # Decision stamped with day/hour from a since-departed live snapshot.
+        # ``api_game_state_id`` is NULL because the snapshot has been pruned
+        # or never persisted; build_overlay_state must still surface hour.
+        _insert_decision_with_hour(conn, run_id=run_a, seq=1, day=3, hour=2)
+        conn.commit()
+
+        state = build_overlay_state(
+            conn,
+            resolve_fn=lambda _c, _t: "",
+            safe_json_fn=lambda _r: [],
+            lookup_image_by_name_fn=lambda _c, _n: None,
+        )
+        assert state["snapshot_source"] == "decision_fallback"
+        assert state["day"] == 3
+        assert state["hour"] == 2
+    finally:
+        conn.close()
+
+
+def test_prestige_fallback_reads_in_run_snapshot_via_full_json(tmp_path, monkeypatch):
+    """When the live-snapshot path is empty but at least one in-run snapshot
+    exists with a Prestige field, ``_get_in_run_prestige_fallback`` should
+    surface it instead of dropping the field from the header.
+    """
+    _point_db_at(tmp_path, monkeypatch)
+    db.init_db()
+    conn = sqlite3.connect(tmp_path / "bazaar_runs.db")
+    conn.row_factory = sqlite3.Row
+    try:
+        run_a = _insert_run(conn, hero="Karnok", started_at="2026-05-23T09:00:00+00:00")
+        gs_id = conn.execute(
+            """
+            INSERT INTO api_game_states
+                (captured_at, run_state, hero, day, victories, full_json)
+            VALUES ('2026-05-23T10:00:00+00:00', 'EndRunVictory', 'Karnok',
+                    14, 10, '{"player": {"Prestige": 7}}')
+            RETURNING id
+            """
+        ).fetchone()[0]
+        _insert_decision(conn, run_id=run_a, seq=1, api_game_state_id=gs_id)
+        conn.commit()
+
+        prestige = _get_in_run_prestige_fallback(conn, {"id": run_a, "hero": "Karnok"})
+        assert prestige == 7
+    finally:
+        conn.close()
+
+
+def test_prestige_fallback_does_not_leak_from_prior_run(tmp_path, monkeypatch):
+    """When the active run has no in-run snapshot at all, the prestige
+    fallback must return None rather than borrowing from a prior run.
+    """
+    _point_db_at(tmp_path, monkeypatch)
+    db.init_db()
+    conn = sqlite3.connect(tmp_path / "bazaar_runs.db")
+    conn.row_factory = sqlite3.Row
+    try:
+        run_a = _insert_run(conn, hero="Karnok", started_at="2026-05-23T09:00:00+00:00")
+        a_gs1 = conn.execute(
+            """
+            INSERT INTO api_game_states
+                (captured_at, run_state, hero, day, victories, full_json)
+            VALUES ('2026-05-23T10:00:00+00:00', 'EncounterState', 'Karnok',
+                    14, 9, '{"player": {"Prestige": 99}}')
+            RETURNING id
+            """
+        ).fetchone()[0]
+        _insert_decision(conn, run_id=run_a, seq=1, api_game_state_id=a_gs1)
+
+        run_b = _insert_run(conn, hero="Karnok", started_at="2026-05-23T11:00:00+00:00")
+        # Run B has decisions but NONE of them carry api_game_state_id (cold
+        # start: capture_mono was not producing snapshots).
+        conn.execute(
+            """
+            INSERT INTO decisions (run_id, decision_seq, timestamp, game_state, decision_type)
+            VALUES (?, 1, '2026-05-23T11:00:00+00:00', 'EncounterState', 'item')
+            """,
+            (run_b,),
+        )
+        conn.commit()
+
+        prestige = _get_in_run_prestige_fallback(conn, {"id": run_b, "hero": "Karnok"})
+        assert prestige is None
     finally:
         conn.close()
 
