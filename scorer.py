@@ -1,5 +1,5 @@
 """
-scorer.py — Live scoring engine and manual report tooling for Bazaar Coach.
+scorer.py — Live scoring engine for Bazaar Coach.
 
 LiveScorer evaluates each decision against the active hero's build catalog as
 RunState records it:
@@ -8,15 +8,10 @@ RunState records it:
   3. Detects when a build was committed to
   4. Scores each decision: optimal / good / situational / suboptimal
   5. Writes score_label + score_notes back to the decisions table immediately
-
-Usage:
-    python scorer.py                    # print manual report for most recent run
-    python scorer.py --run-id 3         # print manual report for a specific run
 """
 
 import json
 import sqlite3
-import argparse
 import re
 from collections import Counter
 from functools import lru_cache
@@ -361,26 +356,6 @@ def _filter_resolved_names(names: list) -> list[str]:
     return filtered
 
 
-def _resolve_offered_names(decision, offered_raw: list[str], api_template_map: dict | None = None) -> list[str]:
-    """Resolve offered names, preferring stored live decision context."""
-    offered_names = []
-    enriched_names = db.safe_json(decision["offered_names"], []) if "offered_names" in decision.keys() else []
-
-    if enriched_names:
-        return enriched_names
-
-    for oid in offered_raw:
-        if oid == decision["chosen_id"] and decision["chosen_template"]:
-            tid = decision["chosen_template"]
-        elif api_template_map:
-            tid = api_template_map.get(oid, "")
-        else:
-            tid = ""
-        name = card_cache.resolve_template_id(tid) if tid else ""
-        offered_names.append(name or oid)
-    return offered_names
-
-
 def _resolve_rejected_names(decision, offered_raw: list[str], offered_names: list[str]) -> list[str]:
     """Map rejected instance ids back to readable names using offered ordering."""
     rejected_raw = db.safe_json(decision["rejected"], [])
@@ -568,75 +543,6 @@ def _is_event_or_loot_purchase(decision, offered_raw: list[str]) -> bool:
         return True
 
     return False
-
-
-def _get_terminal_pvp_row(conn: sqlite3.Connection, run) -> Optional[sqlite3.Row]:
-    """Prefer a terminal Mono snapshot linked to this run's decision context."""
-    if not run:
-        return None
-    latest = conn.execute(
-        """
-        SELECT api_game_state_id
-        FROM decisions
-        WHERE run_id = ? AND api_game_state_id IS NOT NULL
-        ORDER BY decision_seq DESC, id DESC
-        LIMIT 1
-        """,
-        (run["id"],),
-    ).fetchone()
-    if not latest:
-        return None
-
-    outcome_to_state = {
-        "victory": "EndRunVictory",
-        "defeat": "EndRunDefeat",
-    }
-    desired_state = outcome_to_state.get(run["outcome"]) if "outcome" in run.keys() else None
-
-    queries = []
-    if desired_state:
-        queries.append((
-            """
-            SELECT victories, defeats
-            FROM api_game_states
-            WHERE id >= ?
-              AND run_state = ?
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (latest["api_game_state_id"], desired_state),
-        ))
-
-    queries.append((
-        """
-        SELECT victories, defeats
-        FROM api_game_states
-        WHERE id >= ?
-          AND run_state IN ('EndRunDefeat', 'EndRunVictory')
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (latest["api_game_state_id"],),
-    ))
-
-    queries.append((
-        """
-        SELECT victories, defeats
-        FROM api_game_states
-        WHERE id >= ?
-          AND victories IS NOT NULL
-        ORDER BY id DESC
-        LIMIT 1
-        """,
-        (latest["api_game_state_id"],),
-    ))
-
-    for sql, params in queries:
-        row = conn.execute(sql, params).fetchone()
-        if row and row["victories"] is not None:
-            return row
-
-    return None
 
 
 def _resolve_api_template_for_instance(
@@ -1238,226 +1144,6 @@ def score_late_decision(
             return "suboptimal", f"Doesn't fit any late archetype and is {tier or 'unranked'}-tier."
 
 
-def _score_loaded_run(
-    conn: sqlite3.Connection,
-    run_id: int,
-    decisions,
-    combats,
-    builds: dict,
-) -> list[dict]:
-    scored = []
-    board = {}  # instance_id -> item_name
-    board_snapshots = _load_board_snapshot_map(conn, run_id)
-    committed_arch = None
-
-    for d in decisions:
-        dtype = d["decision_type"]
-        item_name = card_cache.resolve_template_id(d["chosen_template"]) if d["chosen_template"] else d["chosen_id"]
-        _d_ts = d["timestamp"] if "timestamp" in d.keys() else None
-        phase = detect_phase(
-            d["decision_seq"],
-            len([c for c in combats
-                 if _d_ts and "timestamp" in c.keys() and c["timestamp"] <= _d_ts]),
-            day=d["day"] if "day" in d.keys() else None,
-            phase_actual=d["phase_actual"] if "phase_actual" in d.keys() else None,
-        )
-        offered_raw = db.safe_json(d["offered"], [])
-        api_template_map = db.safe_json(d["offered_templates"], {}) if "offered_templates" in d.keys() else {}
-        snapshot_board = board_snapshots.get(d["id"])
-        if snapshot_board is not None:
-            board = dict(snapshot_board)
-        if committed_arch is None:
-            committed_arch, _ = find_committed_archetype(list(board.values()), builds)
-
-        if dtype == "skip":
-            pre_resolved = []
-            try:
-                stored = json.loads(d.get("score_notes") or "{}")
-                if isinstance(stored, dict):
-                    pre_resolved = stored.get("resolved_names", [])
-                    skip_rerolls = stored.get("rerolls", 0)
-            except (json.JSONDecodeError, TypeError):
-                skip_rerolls = 0
-
-            named_offered = [n for n in pre_resolved if n]
-            live_names = _resolve_offered_names(d, offered_raw, api_template_map)
-            if live_names:
-                named_offered = _filter_resolved_names(live_names)
-
-            missed_flags = _find_missed_flags(
-                named_offered,
-                phase,
-                list(board.values()),
-                committed_arch,
-                builds,
-            )
-
-            reroll_note = f" after {skip_rerolls} reroll(s)" if skip_rerolls else ""
-            skip_label = "warning" if missed_flags else "info"
-            if missed_flags:
-                notes = f"Skipped{reroll_note} - missed: {'; '.join(missed_flags)}"
-            elif named_offered:
-                notes = f"Skipped{reroll_note}: {named_offered}"
-            else:
-                notes = f"Skipped shop{reroll_note} ({len(offered_raw)} items, names unresolved)"
-
-            scored.append({
-                "decision_id": d["id"],
-                "seq": d["decision_seq"],
-                "phase": phase,
-                "decision_type": "skip",
-                "item_name": "(skipped shop)",
-                "label": skip_label,
-                "notes": notes,
-                "board": dict(board),
-                "game_state": d["game_state"],
-            })
-            continue
-
-        if dtype == "free_reward":
-            if d["board_section"] == "Player" and d["chosen_template"]:
-                board[d["chosen_id"]] = item_name
-            scored.append({
-                "decision_id": d["id"],
-                "seq": d["decision_seq"],
-                "phase": phase,
-                "decision_type": "free_reward",
-                "item_name": item_name,
-                "label": "info",
-                "notes": "Free reward (no choice).",
-                "board": dict(board),
-                "game_state": d["game_state"],
-            })
-            continue
-
-        if dtype == "event_choice":
-            scored.append({
-                "decision_id": d["id"],
-                "seq": d["decision_seq"],
-                "phase": phase,
-                "decision_type": "event_choice",
-                "item_name": item_name,
-                "label": "info",
-                "notes": "Chose map node.",
-                "board": dict(board),
-                "game_state": d["game_state"],
-            })
-            continue
-
-        offered_names = _resolve_offered_names(d, offered_raw, api_template_map)
-        rejected_names = _resolve_rejected_names(d, offered_raw, offered_names)
-        # Final-pass: resolve any remaining raw IDs via api_template_map + card_cache
-        rejected_names = _resolve_ids_via_cache(rejected_names, api_template_map)
-        resolved_rejected = _filter_resolved_names(rejected_names)
-        rejected_for_notes = resolved_rejected or rejected_names
-
-        if _is_event_or_loot_purchase(d, offered_raw):
-            board[d["chosen_id"]] = item_name
-            scored.append({
-                "decision_id": d["id"],
-                "seq": d["decision_seq"],
-                "phase": phase,
-                "decision_type": dtype,
-                "item_name": item_name,
-                "label": "info",
-                "notes": "Event/loot item. Excluded from archetype-fit scoring.",
-                "board": dict(board),
-                "game_state": d["game_state"],
-            })
-            continue
-
-        purchase_missed_flags = _find_missed_flags(
-            resolved_rejected,
-            phase,
-            list(board.values()),
-            committed_arch,
-            builds,
-        )
-
-        if d["decision_type"] == "skill":
-            label = None
-            notes = None
-        elif dtype in ("item", "companion") and not _is_catalog_item(item_name, builds):
-            # Item is completely unknown to the build guide — loot drops,
-            # uncatalogued companions, hero-specific quest items, etc.
-            # Don't score it; a suboptimal label here is false noise.
-            label = None
-            notes = f"Not in {builds.get('hero', 'hero')} catalog — no score assigned."
-        elif phase == "early":
-            label, notes = score_early_decision(item_name, builds, offered_names)
-        elif phase == "early_mid":
-            label, notes = score_early_mid_decision(
-                item_name,
-                list(board.values()),
-                builds,
-                day=d["day"] if "day" in d.keys() else None,
-            )
-        else:
-            label, notes = score_late_decision(
-                item_name,
-                list(board.values()),
-                committed_arch,
-                builds,
-                day=d["day"] if "day" in d.keys() else None,
-            )
-
-        if d["decision_type"] != "skill":
-            board[d["chosen_id"]] = item_name
-
-        if committed_arch is None:
-            newly_committed_arch, reason = find_committed_archetype(list(board.values()), builds)
-            if newly_committed_arch:
-                committed_arch = newly_committed_arch
-                # This item triggered the commit — upgrade label regardless of what
-                # score_late_decision returned, since it was evaluating a pre-commit board.
-                if dtype in ("item", "companion") and phase == "late":
-                    label = "optimal"
-                    notes = f"Commits {committed_arch['name']} ({reason})." + (
-                        f" {notes}" if notes else ""
-                    )
-                else:
-                    notes = (notes or "") + f" COMMITTED to {newly_committed_arch['name']} ({reason})."
-
-        if phase == "late" and committed_arch is None and d["decision_type"] != "skill":
-            arch_counts = {}
-            board_item_list = list(board.values())
-            for arch in builds["game_phases"]["late"]["archetypes"]:
-                all_arch = set(
-                    [i for i in arch.get("core_items", []) if not i.startswith("TODO")] +
-                    [i for i in arch.get("carry_items", []) if not i.startswith("TODO")] +
-                    [i for i in arch.get("support_items", []) if not i.startswith("TODO")]
-                )
-                overlap = [b for b in board_item_list if b in all_arch]
-                if len(overlap) >= 2:
-                    arch_counts[arch["name"]] = overlap
-            if arch_counts:
-                top = max(arch_counts, key=lambda k: len(arch_counts[k]))
-                if len(arch_counts[top]) >= 2:
-                    notes = (notes or "") + f" Board converging on {top} ({arch_counts[top]})."
-        elif phase == "late" and committed_arch is not None and d["decision_type"] != "skill":
-            carry = [c for c in committed_arch.get("carry_items", []) if not c.startswith("TODO")]
-            if item_name in carry:
-                notes = notes.replace("Fits 3 late", f"Carry item for {committed_arch['name']}! ")
-                notes = notes.replace("Keeps options open", f"Build now has carry")
-
-        if dtype in ("item", "companion") and rejected_for_notes:
-            notes = (notes or "") + f" Passed on: {_summarize_names(rejected_for_notes)}."
-            if purchase_missed_flags:
-                notes += f" Missed alternatives: {'; '.join(purchase_missed_flags)}."
-
-        scored.append({
-            "decision_id": d["id"],
-            "seq": d["decision_seq"],
-            "phase": phase,
-            "decision_type": dtype,
-            "item_name": item_name,
-            "label": label,
-            "notes": notes,
-        })
-
-    return scored
-
-
 class LiveScorer:
     """Score decisions incrementally as they are recorded.
 
@@ -1473,7 +1159,7 @@ class LiveScorer:
         decision_id = db.insert_decision(...)
         scorer_instance.score_decision(decision_dict, decision_id)
 
-    ``decision_dict`` must contain the same fields that ``_score_loaded_run``
+    ``decision_dict`` must contain the same fields that ``_score_single_decision``
     reads from the DB (decision_seq, decision_type, offered, chosen_id,
     chosen_template, rejected, board_section, game_state, day, phase_actual,
     offered_names, score_notes).
@@ -1483,7 +1169,6 @@ class LiveScorer:
         self.builds = load_builds(hero)
         self._has_catalog = has_build_catalog(self.builds)
         self.conn = conn
-        # Incremental state — mirrors _score_loaded_run's loop variables.
         self._board: dict[str, str] = {}
         self._committed_arch: Optional[dict] = None
         self._combats_so_far: int = 0  # updated via notify_combat()
@@ -1501,11 +1186,6 @@ class LiveScorer:
         if not self._has_catalog:
             return {"label": None, "notes": None}
 
-        # Wrap in a single-element list so _score_loaded_run's loop runs once,
-        # starting from the current incremental board/committed_arch state.
-        # We snapshot and restore board state so the scorer's loop doesn't
-        # interfere with our own tracking — _score_loaded_run mutates a local
-        # board copy, so we re-read its output board after the call.
         result = _score_single_decision(
             self.conn,
             decision,
@@ -1537,9 +1217,7 @@ def _score_single_decision(
     """Score one decision dict against the current incremental board state.
 
     Returns a dict with ``label``, ``notes``, ``board`` (updated), and
-    ``committed_arch`` (updated).  This is a thin wrapper around the batch
-    scorer's logic, restructured to operate on a single decision with
-    externally-supplied board state.
+    ``committed_arch`` (updated).
     """
     import card_cache as _cc
 
@@ -1695,180 +1373,3 @@ def _score_single_decision(
             notes += f" Missed alternatives: {'; '.join(purchase_missed_flags)}."
 
     return {"label": label, "notes": notes, "board": board, "committed_arch": committed_arch}
-
-
-def score_run(run_id: int, dry_run: bool = True) -> list:
-    """Compute a manual report for a run without mutating stored scores."""
-    conn = db.get_conn()
-    try:
-        run = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        if not run:
-            print(f"[Scorer] Run {run_id} not found")
-            return []
-
-        hero_name = run["hero"] if "hero" in run.keys() else None
-        builds = load_builds(hero_name)
-        if not has_build_catalog(builds):
-            print(
-                f"[Scorer] No build catalog available for hero "
-                f"{hero_name or DEFAULT_HERO}; skipping scoring for run {run_id}"
-            )
-            return []
-
-        decisions = conn.execute(
-            """SELECT * FROM decisions WHERE run_id=?
-               AND decision_type IN ('item','companion','skill','skip','free_reward')
-               ORDER BY decision_seq""",
-            (run_id,),
-        ).fetchall()
-        if not decisions:
-            print(f"[Scorer] No decisions found for run {run_id}")
-            return []
-
-        combats = conn.execute(
-            "SELECT * FROM combat_results WHERE run_id=? ORDER BY id",
-            (run_id,),
-        ).fetchall()
-
-        print(f"\n[Scorer] Manual report for run {run_id} | Hero: {run['hero']} | {len(decisions)} decisions")
-        scored = _score_loaded_run(conn, run_id, decisions, combats, builds)
-        if not dry_run:
-            print("[Scorer] Stored scores are live-only; manual score_run does not write to DB.")
-        return scored
-    finally:
-        conn.close()
-
-
-def print_report(scored: list, run_id: int):
-    """Print a human-readable scoring report."""
-    conn = db.get_conn()
-    try:
-        run = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        combats = conn.execute(
-            "SELECT outcome, combat_type FROM combat_results WHERE run_id=?", (run_id,)
-        ).fetchall()
-
-        pvp_wins = sum(
-            1 for c in combats
-            if c["outcome"] == "opponent_died" and (c["combat_type"] or "pve") == "pvp"
-        )
-        pvp_losses = sum(
-            1 for c in combats
-            if c["outcome"] == "player_died" and (c["combat_type"] or "pve") == "pvp"
-        )
-        pve_wins = sum(
-            1 for c in combats
-            if c["outcome"] == "opponent_died" and (c["combat_type"] or "pve") == "pve"
-        )
-        pve_losses = sum(
-            1 for c in combats
-            if c["outcome"] == "player_died" and (c["combat_type"] or "pve") == "pve"
-        )
-
-        if run:
-            try:
-                terminal_row = _get_terminal_pvp_row(conn, run)
-                if terminal_row and terminal_row["victories"] is not None:
-                    pvp_wins = terminal_row["victories"]
-                    pvp_losses = terminal_row["defeats"] or 0
-            except sqlite3.Error as exc:
-                print(f"[Scorer] Terminal PvP lookup failed: {exc}")
-
-        unresolved_pvp = sum(
-            1 for c in combats
-            if (c["combat_type"] or "pve") == "pvp_unknown"
-        )
-
-        label_counts = {}
-        for s in scored:
-            label_counts[s["label"]] = label_counts.get(s["label"], 0) + 1
-
-        print("\n" + "═" * 70)
-        print(f"  SCORING REPORT  |  Hero: {run['hero']}  |  Run ID: {run_id}")
-        print(f"  PvP: {pvp_wins}W / {pvp_losses}L  |  PvE: {pve_wins}W / {pve_losses}L  |  Decisions: {len(scored)}")
-        if unresolved_pvp:
-            print(
-                f"  Note: {unresolved_pvp} combat(s) still marked pvp_unknown "
-                f"(log-only PvP outcome; no terminal Mono context was linked).\n"
-            )
-        if pvp_wins >= 10 and pvp_losses == 0:
-            print("  Perfect finish - 10 wins without losing prestige")
-        elif pvp_wins >= 10:
-            print("  Gold finish - run won")
-        elif pvp_wins >= 7:
-            print("  Silver finish - above MMR threshold")
-        elif pvp_wins >= 4:
-            print("  Bronze finish - reached the first ranked tier")
-        print("═" * 70)
-
-        label_icons = {
-            "optimal": "✅",
-            "good": "👍",
-            "situational": "⚠️ ",
-            "suboptimal": "❌",
-            "warning": "🔶",
-            "info": "ℹ️ ",
-        }
-
-        phase_order = ["early", "early_mid", "late"]
-        for phase in phase_order:
-            phase_decisions = [s for s in scored if s["phase"] == phase]
-            if not phase_decisions:
-                continue
-            print(f"\n  [{phase.upper().replace('_', ' ')}]")
-            for s in phase_decisions:
-                dtype = s.get("decision_type", "")
-                # Suppress free_rewards — board state only, no scoring value
-                if dtype == "free_reward":
-                    continue
-                # Suppress skips with no resolved names — can't score them, just noise
-                if dtype == "skip" and "names unresolved" in s.get("notes", ""):
-                    continue
-                icon = label_icons.get(s["label"], "  ")
-                print(f"  {icon} #{s['seq']:>2}  {s['item_name']:<30}")
-                print(f"       {s['notes']}")
-
-        print(f"\n  SUMMARY: ", end="")
-        for label in ["optimal", "good", "situational", "suboptimal", "warning"]:
-            count = label_counts.get(label, 0)
-            if count == 0:
-                continue
-            icon = label_icons.get(label, "")
-            print(f"{icon} {label}: {count}  ", end="")
-        print("\n" + "═" * 70 + "\n")
-    finally:
-        conn.close()
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Print a manual Bazaar Coach scoring report without rewriting stored scores"
-    )
-    parser.add_argument(
-        "--run-id",
-        type=int,
-        default=None,
-        help="Run ID to report on (default: most recent run)",
-    )
-    args = parser.parse_args()
-
-    db.init_db()
-
-    run_id = args.run_id
-    if run_id is None:
-        conn = db.get_conn()
-        try:
-            row = conn.execute("SELECT id FROM runs ORDER BY id DESC LIMIT 1").fetchone()
-            if not row:
-                print("[Scorer] No runs found in database.")
-                return
-            run_id = row["id"]
-        finally:
-            conn.close()
-
-    scored = score_run(run_id)
-    print_report(scored, run_id)
-
-
-if __name__ == "__main__":
-    main()
