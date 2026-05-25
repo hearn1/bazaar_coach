@@ -137,4 +137,3 @@ For manual catalog curation in bazaar-builds, distinguish safe no-op workflow va
 
 Automated refresh pipeline status: bazaar-builds is in `phase: live_cron` with `dry_run: false`. Weekly scheduled runs default to the `deterministic` classifier. Stats sidecars are persisted via rolling `automated/stats-sync-<hero>` PRs (direct push to `main` is branch-protected). Rolling coach catalog PRs may be opened/updated from `pipeline/<Hero>` branches when generated catalog diffs are non-empty. Hosted LLM classification is not part of the live path — do not require Anthropic/OpenAI credentials for scheduled refreshes. Coach catalog updates remain curator-reviewed PRs unless auto-merge is explicitly enabled later.
 
-See `ROADMAP.md` for open work.
