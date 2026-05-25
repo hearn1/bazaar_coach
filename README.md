@@ -265,6 +265,4 @@ powershell -ExecutionPolicy Bypass -File packaging\installer\build_installer.ps1
 
 For end-to-end release cuts (version bump + build + tag + draft GitHub Release), see `packaging/release/README.md`.
 
-### Roadmap
 
-See `ROADMAP.md` for open work. Completed items are removed rather than kept as checked-off entries.
