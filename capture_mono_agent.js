@@ -1814,21 +1814,16 @@ function shouldReadActionTemplateEvents(snapshot){
 }
 function readDynamicStateLean(dataPtr){if(!dataPtr||dataPtr.isNull())return null;const r={run:{},state:{},player:{},offered:[],player_board:[],player_stash:[],player_skills:[],opponent_board:[]};let sawAny=false;try{const runPtr=readDynamicObjectField(dataPtr,['Run']);if(runPtr&&!runPtr.isNull()){const day=readDynamicU32Field(runPtr,['Day']);if(day!==null)r.run.day=day;const hour=readDynamicU32Field(runPtr,['Hour']);if(hour!==null)r.run.hour=hour;const victories=readDynamicU32Field(runPtr,['Victories']);if(victories!==null)r.run.victories=victories;const defeats=readDynamicU32Field(runPtr,['Defeats']);if(defeats!==null)r.run.defeats=defeats;sawAny=true;}const statePtr=readDynamicObjectField(dataPtr,['CurrentState']);if(statePtr&&!statePtr.isNull()){const stateInt=readDynamicI32Field(statePtr,['StateName']);if(stateInt!==null){r.state.state=E_RUN_STATE[stateInt]||('Unknown('+stateInt+')');r.state.state_int=stateInt;}const rerollCost=readDynamicNullableU32Field(statePtr,['RerollCost']);if(rerollCost!==null)r.state.reroll_cost=rerollCost;const rerollsRemaining=readDynamicNullableU32Field(statePtr,['RerollsRemaining']);if(rerollsRemaining!==null)r.state.rerolls_remaining=rerollsRemaining;const selectionSetPtr=readDynamicObjectField(statePtr,['SelectionSet']);if(selectionSetPtr&&!selectionSetPtr.isNull())r.state.selection_set=readStringList(selectionSetPtr);sawAny=true;}const playerPtr=readDynamicObjectField(dataPtr,['Player']);if(playerPtr&&!playerPtr.isNull()){r.player=readDynamicPlayerLean(playerPtr);sawAny=true;}}catch(e){send({type:'debug',msg:'readDynamicStateLean:'+e});}return sawAny?r:null;}
 
-// Defer heavy Player.Attributes enumeration off the game thread.
-// The managed dict walk (20-38 entries * range-checked memory reads) dominates
-// hook latency on NetMessageGameSim — 91% of slow hooks. Capture the pointer
-// cheaply on the game thread, decode in setImmediate, ship as deferred_player_attrs.
-// On empty/exception, flip _pendingSyncAttrsRead so the next hook falls back to
-// sync and we don't silently drop attrs forever.
+// Legacy deferred Player.Attributes enumeration — no longer the primary path.
+// The managed dict walk (20-38 entries * range-checked memory reads) dominated
+// hook latency on NetMessageGameSim (91% of slow hooks). The QW10 fast path
+// (readGameSimFast) now handles attrs synchronously but throttled to state
+// changes with cached dict layout (zero NativeFunction calls), eliminating
+// the 87% deferred-failure cascade. The deferred fallback here is only active
+// for NetMessageRunInitialized or when FAST_GAMESIM_PATH=false.
 //
-// HITCHING FOLLOW-UP (roadmap section 5, Short-Term): if live runs show
-// remaining GameSim hitching even with this deferred path in place,
-// throttle the dispatch here — e.g., skip calling dispatchDeferredPlayerAttrs
-// when (Date.now() - _lastDeferredAttrsDispatchMs) < N ms, or coalesce
-// pointer captures by snapshot state. Do not speculatively throttle
-// without a reproducible hitch — KEEP_PLAYER_ATTR_IDS already narrows the
-// managed dict walk to 5 live attrs (Gold, Health, HealthMax, Level,
-// Prestige), which is the cheapest read that still feeds the overlay.
+// On empty/exception, flip _pendingSyncAttrsRead so the next hook falls back
+// to sync and we don't silently drop attrs forever.
 function dispatchDeferredPlayerAttrs(playerPtr,snapshotId){try{const attrsPtr=readDynamicObjectField(playerPtr,['Attributes']);if(!attrsPtr||attrsPtr.isNull())return false;setImmediate(function(){try{const attrsDict=readEnumIntDict(attrsPtr,null,KEEP_PLAYER_ATTR_IDS,KEEP_PLAYER_ATTR_COUNT);const attrs={};for(const[k,v]of Object.entries(attrsDict))attrs[E_PLAYER_ATTRIBUTE[parseInt(k)]||('attr_'+k)]=v;const attrCount=Object.keys(attrs).length;if(attrCount>0){_deferredAttrsSuccessCount++;send({type:'deferred_player_attrs',snapshot_id:snapshotId,attrs:attrs});}else{_deferredAttrsFailureCount++;_pendingSyncAttrsRead=true;}maybeReportAttrsStats();}catch(e){_deferredAttrsFailureCount++;_pendingSyncAttrsRead=true;send({type:'debug',msg:'deferred-player-attrs:'+e});}});return true;}catch(e){return false;}}
 
 function maybeReportAttrsStats(){const now=Date.now();if(now-_lastAttrsStatReportMs<ATTRS_STAT_REPORT_INTERVAL_MS)return;_lastAttrsStatReportMs=now;if(FAST_GAMESIM_PATH&&ATTRS_THROTTLE_ON_STATE_CHANGE){send({type:'info',msg:'QW10 attrs stats: sync_reads='+_attrsSyncReadCount+' throttled='+_attrsSyncThrottledCount+' empty='+_attrsSyncEmptyCount+' from_cache='+_attrsFromCacheCount+' fast_dict='+_fastAttrsReadCount+' fast_dict_fail='+_fastAttrsFailCount+' dict_layout='+(!!_playerAttrsDictLayout)+' selset_hits='+_selectionSetCacheHits+' selset_misses='+_selectionSetCacheMisses});return;}const total=_deferredAttrsSuccessCount+_deferredAttrsFailureCount;if(total===0)return;const failureRate=(_deferredAttrsFailureCount/total*100).toFixed(1);send({type:'info',msg:'deferred_player_attrs stats: success='+_deferredAttrsSuccessCount+' failure='+_deferredAttrsFailureCount+' sync_fallback='+_syncAttrsFallbackCount+' failure_rate='+failureRate+'%'});}
