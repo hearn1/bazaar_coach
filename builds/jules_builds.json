@@ -50,15 +50,6 @@
           ]
         },
         {
-          "name": "Freezer",
-          "phase": "late",
-          "carry_items": [],
-          "support_items": [
-            "Blender",
-            "Walk-In Freezer"
-          ]
-        },
-        {
           "name": "Farmer's Market / Bread Knife / Pasta",
           "phase": "late",
           "core_items": [
@@ -74,26 +65,17 @@
         {
           "name": "Zarlic / Meat Tenderizer / Sorbet",
           "phase": "late",
-          "carry_items": [],
+          "core_items": [
+            "Meat Tenderizer",
+            "Sorbet"
+          ],
+          "carry_items": [
+            "Zarlic"
+          ],
           "support_items": [
             "Froyo Cart"
-          ]
-        },
-        {
-          "name": "Farmer's Market",
-          "phase": "late",
-          "carry_items": [],
-          "support_items": [
-            "Oven"
-          ]
-        },
-        {
-          "name": "Spice Rack",
-          "phase": "late",
-          "carry_items": [],
-          "support_items": [
-            "Pizza"
-          ]
+          ],
+          "notes": "Partial stub from automated enricher — timing_profile and condition still need curator review. Zarlic placed in carry_items to mirror the existing Zarlic / Spice Rack / Instant Noodles archetype. See issue #82."
         }
       ]
     }

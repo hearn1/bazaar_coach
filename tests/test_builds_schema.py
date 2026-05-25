@@ -71,9 +71,10 @@ LIVE_CATALOG_NAMES = [
     "Dooley",
     "Vanessa",
     "Pygmalien",
-    # Jules/Stelle are registered in scorer.CATALOG_FILENAMES but ship as
-    # empty seed skeletons until the bazaar-builds accumulation pipeline
-    # populates real archetypes; they are intentionally excluded here
+    "Jules",
+    # Stelle is registered in scorer.CATALOG_FILENAMES but ships as an
+    # empty seed skeleton until the bazaar-builds accumulation pipeline
+    # populates real archetypes; it is intentionally excluded here
     # because test_live_catalog_loads_via_scorer requires non-empty content.
 ]
 
