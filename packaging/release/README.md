@@ -73,4 +73,4 @@ Flow:
 - CI release automation (`.github/workflows/release.yml`) — release cuts are local-only, matching the project's Windows-only runtime (Frida).
 - Code signing — see `packaging/installer/README.md` for the SmartScreen/AV expectations on unsigned builds.
 
-Product / packaging bugs that the orchestrator does **not** fix (they're tracked in `ROADMAP.md` and GitHub Issues) ride through these scripts unchanged.
+Product / packaging bugs that the orchestrator does **not** fix (they're tracked in GitHub Issues) ride through these scripts unchanged.
