@@ -21,7 +21,6 @@ datas = [
     (str(ROOT / "capture_mono.py"), "."),
     (str(ROOT / "capture_mono_agent.js"), "."),
     (str(ROOT / "README.md"), "."),
-    (str(ROOT / "ROADMAP.md"), "."),
 ]
 for path in (ROOT / "web" / "static").rglob("*"):
     if path.is_file():

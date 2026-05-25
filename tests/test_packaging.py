@@ -226,7 +226,6 @@ def test_gitignore_keeps_generated_artifacts_local_and_sources_trackable():
         "*.py",
         "tests/",
         "README.md",
-        "ROADMAP.md",
         "CLAUDE.md",
         "requirements.txt",
         "packaging/",
