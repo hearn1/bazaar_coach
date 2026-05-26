@@ -1222,6 +1222,64 @@ class RunState:
             print(f"[Decision #{self.decision_seq}] 🗺  Event: {name} | Skipped {len(rejected)} others")
         self._offered = OfferBatch()
 
+    def _resolve_skill_templates_from_offer_snapshot(
+        self,
+        offer_snap_id: int,
+        chosen_id: str,
+        offered: list[str],
+    ) -> tuple[str, Optional[dict]]:
+        """Look up template_id for a skill pick and offered_templates from the
+        pre-decision offer snapshot (api_game_state_id_at_offer).
+
+        Args:
+            offer_snap_id: api_game_states.id of the offer snapshot.
+            chosen_id: The instance_id of the chosen skill card.
+            offered: All offered instance_ids (including the chosen one).
+
+        Returns:
+            (chosen_template, offered_templates_dict) where offered_templates_dict
+            maps instance_id → template_id for all resolved offered skills.
+            Returns ("", None) if no snapshot or no match.
+        """
+        if not offer_snap_id or not offered:
+            return ("", None)
+
+        conn = db.get_conn()
+        try:
+            all_ids = list(offered)
+            placeholders = ",".join("?" for _ in all_ids)
+            card_rows = conn.execute(
+                f"""
+                SELECT instance_id, template_id
+                FROM api_cards
+                WHERE game_state_id = ?
+                  AND category = 'offered'
+                  AND instance_id IN ({placeholders})
+                  AND template_id IS NOT NULL
+                  AND template_id != ''
+                ORDER BY id
+                """,
+                (offer_snap_id, *all_ids),
+            ).fetchall()
+        except Exception as exc:
+            print(f"[RunState] Skill template lookup failed: {exc}")
+            return ("", None)
+        finally:
+            conn.close()
+
+        templates: dict[str, str] = {}
+        for row in card_rows:
+            iid = row["instance_id"]
+            tid = row["template_id"]
+            if not iid or not tid or card_cache.is_suspicious_template_id(tid):
+                continue
+            if iid not in templates:
+                templates[iid] = tid
+                self.resolver.notify_template(iid, tid)
+
+        chosen_template = templates.get(chosen_id, "")
+        return (chosen_template, templates if templates else None)
+
     def _on_skill_selected(self, event: dict):
         if not self.run_id:
             return
@@ -1245,6 +1303,34 @@ class RunState:
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
             live_context = self._build_live_decision_context(self.current_state, offered, timestamp=event["ts"])
+
+            # Resolve chosen_template via the offer snapshot when the resolver
+            # does not already have a mapping (instance_id only in Player.log).
+            if not template_id:
+                offer_snap_id = live_context.get("api_game_state_id_at_offer")
+                if offer_snap_id:
+                    resolved_template, offer_templates = (
+                        self._resolve_skill_templates_from_offer_snapshot(
+                            offer_snap_id, instance_id, offered
+                        )
+                    )
+                    if resolved_template:
+                        template_id = resolved_template
+                        # Update board record with the now-known template_id/name.
+                        self.board.buy(
+                            instance_id=instance_id,
+                            template_id=template_id,
+                            socket=socket,
+                            category="player_skills",
+                            name=card_cache.resolve_template_id(template_id) or instance_id,
+                        )
+                    # Merge any offer-snapshot templates into live_context so the
+                    # scorer and overlay can reason about the full offered set.
+                    if offer_templates:
+                        existing = live_context.get("offered_templates") or {}
+                        merged = {**offer_templates, **existing}
+                        live_context["offered_templates"] = merged or None
+
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
