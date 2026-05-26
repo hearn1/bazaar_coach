@@ -357,11 +357,32 @@ def _filter_resolved_names(names: list) -> list[str]:
 
 
 def _resolve_rejected_names(decision, offered_raw: list[str], offered_names: list[str]) -> list[str]:
-    """Map rejected instance ids back to readable names using offered ordering."""
-    rejected_raw = db.safe_json(decision["rejected"], [])
+    """Map rejected instance ids back to readable names using offered ordering.
+
+    Prefers template-based resolution via rejected_templates_json (populated
+    from the offer snapshot by RunState._build_live_decision_context) when
+    available, falling back to offered_names position matching.
+    """
+    rejected_raw = db.safe_json(decision.get("rejected") if hasattr(decision, "get") else decision["rejected"], [])
     if not rejected_raw:
         return []
 
+    # Fast path: use resolved template names when available.
+    rejected_templates = db.safe_json(
+        decision.get("rejected_templates_json") if hasattr(decision, "get") else None,
+        [],
+    )
+    if rejected_templates and len(rejected_templates) == len(rejected_raw):
+        names = []
+        for iid, tid in zip(rejected_raw, rejected_templates):
+            if tid:
+                name = card_cache.resolve_template_id(tid) or tid
+            else:
+                name = iid
+            names.append(name)
+        return names
+
+    # Fallback: position-match instance IDs against the offered list.
     remaining = Counter(rejected_raw)
     rejected_names = []
     for raw_id, resolved_name in zip(offered_raw, offered_names):
@@ -1254,6 +1275,19 @@ def _score_single_decision(
         enriched_names = db.safe_json(decision.get("offered_names"), [])
         if enriched_names:
             named_offered = _filter_resolved_names(enriched_names)
+
+        # For skips the rejected set is the same as the offered set.
+        # When rejected_templates_json is populated (from the offer snapshot),
+        # use it to resolve the offered names — this is more reliable than
+        # either the score_notes path (resolved at log-parse time) or the
+        # offered_names path (requires Mono name notifications to have fired).
+        if not named_offered:
+            rej_templates = db.safe_json(decision.get("rejected_templates_json"), [])
+            if rej_templates:
+                template_names = [
+                    card_cache.resolve_template_id(tid) for tid in rej_templates if tid
+                ]
+                named_offered = _filter_resolved_names(template_names)
 
         missed_flags = _find_missed_flags(
             named_offered, phase, list(board.values()), committed_arch, builds

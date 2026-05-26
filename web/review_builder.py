@@ -405,16 +405,34 @@ def resolve_overlay_decision_names(conn, decision: dict, *, resolve_fn, safe_jso
 
     # ── Rejected names ───────────────────────────────────────────────────
     rejected_raw = safe_json_fn(row.get("rejected"), [])
+    rejected_templates = safe_json_fn(row.get("rejected_templates_json"), [])
     rejected_names = []
-    for rejected_id in rejected_raw:
-        matched = False
-        for raw_id, name in zip(offered_raw, offered_names):
-            if raw_id == rejected_id:
-                rejected_names.append(name)
-                matched = True
-                break
-        if not matched:
-            rejected_names.append(rejected_id)
+    if rejected_templates and len(rejected_templates) == len(rejected_raw):
+        import card_cache as _cc
+        for iid, tid in zip(rejected_raw, rejected_templates):
+            if tid:
+                name = _cc.resolve_template_id(tid)
+                rejected_names.append(name if name else iid)
+            else:
+                # Fall back to offered_names position match for this entry
+                matched = False
+                for raw_id, offered_name in zip(offered_raw, offered_names):
+                    if raw_id == iid:
+                        rejected_names.append(offered_name)
+                        matched = True
+                        break
+                if not matched:
+                    rejected_names.append(iid)
+    else:
+        for rejected_id in rejected_raw:
+            matched = False
+            for raw_id, name in zip(offered_raw, offered_names):
+                if raw_id == rejected_id:
+                    rejected_names.append(name)
+                    matched = True
+                    break
+            if not matched:
+                rejected_names.append(rejected_id)
 
     still_raw = [name for name in rejected_names if is_unresolved(name)]
     if still_raw:
@@ -477,7 +495,7 @@ def build_overlay_review_rows(
             """
             SELECT id, decision_seq, decision_type, game_state, board_section,
                    chosen_id, chosen_template, offered, offered_names, rejected,
-                   score_label, score_notes
+                   score_label, score_notes, rejected_templates_json
             FROM decisions
             WHERE run_id=?
             ORDER BY decision_seq

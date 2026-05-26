@@ -19,6 +19,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Optional
 
+import card_cache as _card_cache
+
 
 def _parse_captured_at(raw: str | int | None) -> float:
     """Normalise captured_at to a float (Unix seconds) for comparison.
@@ -51,6 +53,58 @@ def _parse_captured_at(raw: str | int | None) -> float:
         except ValueError:
             continue
     return float("-inf")
+
+
+def resolve_rejected_templates(
+    conn: sqlite3.Connection,
+    offer_snapshot_id: Optional[int],
+    rejected_instance_ids: list[str],
+) -> list[str]:
+    """Return list[str] of template_ids aligned to rejected_instance_ids.
+
+    Each entry is the template_id from api_cards where
+    game_state_id = offer_snapshot_id AND instance_id IN (...) AND
+    category = 'offered'.  Missing entries become ''.
+
+    Args:
+        conn: A SQLite connection (any thread-owned connection).
+        offer_snapshot_id: The api_game_states.id of the offer snapshot.
+            If None, returns a list of empty strings (same length as input).
+        rejected_instance_ids: The instance IDs to resolve.
+
+    Returns:
+        A list of template_id strings, one per element of rejected_instance_ids.
+        Missing entries are represented as ''.
+    """
+    if not rejected_instance_ids:
+        return []
+
+    if offer_snapshot_id is None:
+        return [""] * len(rejected_instance_ids)
+
+    placeholders = ",".join("?" for _ in rejected_instance_ids)
+    rows = conn.execute(
+        f"""
+        SELECT instance_id, template_id
+        FROM api_cards
+        WHERE game_state_id = ?
+          AND category = 'offered'
+          AND instance_id IN ({placeholders})
+          AND template_id IS NOT NULL
+          AND template_id != ''
+        """,
+        (offer_snapshot_id, *rejected_instance_ids),
+    ).fetchall()
+
+    template_map: dict[str, str] = {}
+    for row in rows:
+        iid = row[0]
+        tid = row[1]
+        if iid and tid and not _card_cache.is_suspicious_template_id(tid):
+            if iid not in template_map:
+                template_map[iid] = tid
+
+    return [template_map.get(iid, "") for iid in rejected_instance_ids]
 
 
 def find_offer_snapshot(
