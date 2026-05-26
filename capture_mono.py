@@ -67,6 +67,10 @@ _coalesced_snapshot_db_updates = 0
 _db_queue = None
 _db_thread = None
 _api_log_module = None
+# Optional MonoEventAdapter instance wired in by coach.py / watcher.py.
+# When set, handle_game_state() calls adapter.process_snapshot() after
+# persisting the snapshot so RunState receives a push notification.
+_mono_event_adapter = None
 _CARD_LIST_KEYS = (
     "offered",
     "player_board",
@@ -755,9 +759,26 @@ def handle_game_state(gs):
         else:
             _snapshot_prints_suppressed += 1
 
-    # Persist directly â€” we're already on the background worker thread.
+    # Persist directly — we're already on the background worker thread.
     if _do_log or _do_db:
         persist_snapshot(gs)
+
+    # Push to the Mono event adapter if one is registered (wired by coach.py).
+    if _mono_event_adapter is not None:
+        try:
+            _mono_event_adapter.process_snapshot(gs)
+        except Exception as _adapter_exc:
+            print(f”[Mono] MonoEventAdapter.process_snapshot raised: {_adapter_exc}”)
+
+
+def register_event_adapter(adapter) -> None:
+    “””Wire a MonoEventAdapter into handle_game_state().
+
+    Call from the coordinator (coach.py / watcher.py integration) after both
+    RunState and MonoEventAdapter are constructed. Passing None clears the hook.
+    “””
+    global _mono_event_adapter
+    _mono_event_adapter = adapter
 
 
 def start_db_writer():
