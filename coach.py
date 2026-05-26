@@ -291,6 +291,85 @@ def main():
         else:
             print(output)
         raise SystemExit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == "backfill-offer-snapshots":
+        import json as _json
+        import sqlite3 as _sqlite3
+        from web.offer_snapshot import find_offer_snapshot as _find_offer_snapshot
+
+        _bf_parser = argparse.ArgumentParser(
+            description="Backfill api_game_state_id_at_offer for existing decisions"
+        )
+        _bf_parser.add_argument("command")
+        _bf_parser.add_argument(
+            "--since",
+            type=str,
+            default=None,
+            metavar="YYYY-MM-DD",
+            help="Only backfill decisions from runs started on or after this date",
+        )
+        _bf_args = _bf_parser.parse_args(sys.argv[1:])
+
+        db.init_db()
+        _conn = db.get_conn()
+        try:
+            _where_extra = ""
+            _params: list = []
+            if _bf_args.since:
+                _where_extra = " AND r.started_at >= ?"
+                _params.append(_bf_args.since)
+
+            _rows = _conn.execute(
+                f"""
+                SELECT d.id, d.run_id, d.timestamp, d.offered,
+                       COALESCE(
+                           (SELECT MAX(d2.api_game_state_id)
+                            FROM decisions d2
+                            WHERE d2.run_id = d.run_id
+                              AND d2.api_game_state_id IS NOT NULL),
+                           0
+                       ) AS baseline_id
+                FROM decisions d
+                JOIN runs r ON r.id = d.run_id
+                WHERE d.api_game_state_id_at_offer IS NULL
+                  AND d.offered IS NOT NULL
+                  {_where_extra}
+                ORDER BY d.id
+                """,
+                _params,
+            ).fetchall()
+
+            _updated = 0
+            _skipped = 0
+            for _row in _rows:
+                _offered = _json.loads(_row["offered"] or "[]")
+                if not _offered:
+                    _skipped += 1
+                    continue
+                # Use per-run baseline: min snapshot id before this run's first decision
+                _baseline = max(0, (_row["baseline_id"] or 1) - 1)
+                _snap_id = _find_offer_snapshot(
+                    _conn,
+                    baseline_id=_baseline,
+                    decision_timestamp=_row["timestamp"] or "",
+                    offered_instance_ids=_offered,
+                )
+                if _snap_id is not None:
+                    _conn.execute(
+                        "UPDATE decisions SET api_game_state_id_at_offer = ? WHERE id = ?",
+                        (_snap_id, _row["id"]),
+                    )
+                    _updated += 1
+                else:
+                    _skipped += 1
+
+            _conn.commit()
+            print(
+                f"[Backfill] offer snapshots: {_updated} updated, "
+                f"{_skipped} skipped (no match or no offered cards)"
+            )
+        finally:
+            _conn.close()
+        raise SystemExit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "check-updates":
         import update_checker
         raise SystemExit(update_checker.main(sys.argv[2:]))

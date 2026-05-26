@@ -29,6 +29,7 @@ import scorer as _scorer
 from board_state import BoardState
 from name_resolver import NameResolver
 from shop_session import ShopSession
+from web.offer_snapshot import find_offer_snapshot
 from typing import Callable, Optional
 
 
@@ -611,8 +612,18 @@ class RunState:
                 still_pending.append((decision_id, instance_ids))
         self._pending_unresolved_decisions = still_pending
 
-    def _build_live_decision_context(self, game_state: str, offered: list[str]) -> dict:
+    def _build_live_decision_context(
+        self,
+        game_state: str,
+        offered: list[str],
+        timestamp: Optional[str] = None,
+    ) -> dict:
         """Attach the freshest compatible Mono snapshot to a Player.log decision.
+
+        Also resolves `api_game_state_id_at_offer` — the pre-decision snapshot
+        whose offered cards are a superset of the requested offered_instance_ids.
+        This is the stable pointer used by follow-up issues (#130, #131, #132)
+        for template_id resolution of rejected/skill/event offers.
 
         Mono is intentionally optional: if capture is absent or slightly late,
         decisions still insert and LiveScorer falls back to its existing
@@ -629,6 +640,7 @@ class RunState:
             "health_max": None,
             "api_game_state_id": None,
             "phase_actual": None,
+            "api_game_state_id_at_offer": None,
         }
         if not self.run_id:
             return context
@@ -709,6 +721,21 @@ class RunState:
 
                 context["offered_templates"] = templates or None
                 context["offered_names"] = names or None
+
+            # Offer-snapshot lookup: find the pre-decision snapshot whose
+            # offered cards are a superset of the requested instance IDs.
+            # Only meaningful for shop/skill/event decisions that have offers.
+            if offered and timestamp:
+                try:
+                    offer_snap_id = find_offer_snapshot(
+                        conn,
+                        baseline_id=self._snapshot_baseline_id,
+                        decision_timestamp=timestamp,
+                        offered_instance_ids=offered,
+                    )
+                    context["api_game_state_id_at_offer"] = offer_snap_id
+                except Exception as exc:
+                    print(f"[RunState] Offer-snapshot lookup failed: {exc}")
         except Exception as exc:
             print(f"[RunState] Live context lookup failed: {exc}")
         finally:
@@ -734,7 +761,7 @@ class RunState:
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
             score_notes_payload = json.dumps({"resolved_names": names, "rerolls": self._shop.reroll_count})
-            live_context = self._build_live_decision_context("EncounterState", offered)
+            live_context = self._build_live_decision_context("EncounterState", offered, timestamp=ts)
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -992,7 +1019,7 @@ class RunState:
         self._shop.set_inferred_purchase(instance_id, None)
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context("EncounterState", offered)
+            live_context = self._build_live_decision_context("EncounterState", offered, timestamp=ts)
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1110,7 +1137,7 @@ class RunState:
 
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context(self.current_state, offered)
+            live_context = self._build_live_decision_context(self.current_state, offered, timestamp=event["ts"])
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1162,7 +1189,7 @@ class RunState:
 
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context("ChoiceState", offered)
+            live_context = self._build_live_decision_context("ChoiceState", offered, timestamp=event["ts"])
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1217,7 +1244,7 @@ class RunState:
 
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context(self.current_state, offered)
+            live_context = self._build_live_decision_context(self.current_state, offered, timestamp=event["ts"])
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,

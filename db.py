@@ -26,7 +26,7 @@ from typing import Optional
 import app_paths
 
 DB_PATH = app_paths.db_path()
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Shared connection for the live session (only touched by the writer thread
 # once start_writer() is called).
@@ -282,8 +282,9 @@ def _create_latest_tables(conn: sqlite3.Connection) -> None:
             gold                INTEGER,
             health              INTEGER,
             health_max          INTEGER,
-            api_game_state_id   INTEGER,
-            phase_actual        TEXT
+            api_game_state_id           INTEGER,
+            phase_actual                TEXT,
+            api_game_state_id_at_offer  INTEGER NULL
         );
 
         CREATE TABLE IF NOT EXISTS combat_results (
@@ -393,6 +394,21 @@ def _create_latest_indexes(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _run_migrations(conn: sqlite3.Connection, current_version: int) -> None:
+    """Apply incremental ALTER TABLE migrations for existing databases."""
+    if current_version < 4:
+        # v3 → v4: pre-decision offer snapshot pointer
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(decisions)").fetchall()}
+        if "api_game_state_id_at_offer" not in existing:
+            conn.execute(
+                "ALTER TABLE decisions ADD COLUMN api_game_state_id_at_offer INTEGER NULL"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decisions_offer_snapshot "
+            "ON decisions(api_game_state_id_at_offer)"
+        )
+
+
 def migrate_db(conn: sqlite3.Connection) -> int:
     """Ensure the latest SQLite schema exists and return its version."""
     current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
@@ -404,6 +420,7 @@ def migrate_db(conn: sqlite3.Connection) -> int:
         return current_version
 
     _create_latest_tables(conn)
+    _run_migrations(conn, current_version)
     _create_latest_indexes(conn)
     _set_schema_version(conn, SCHEMA_VERSION)
     conn.commit()
@@ -534,7 +551,8 @@ def insert_decision(run_id: int, seq: int, timestamp: str, game_state: str,
                     health: Optional[int] = None,
                     health_max: Optional[int] = None,
                     api_game_state_id: Optional[int] = None,
-                    phase_actual: Optional[str] = None) -> int:
+                    phase_actual: Optional[str] = None,
+                    api_game_state_id_at_offer: Optional[int] = None) -> int:
     return _enqueue_with_result(
         _insert_decision_impl,
         run_id, seq, timestamp, game_state, decision_type, offered,
@@ -549,6 +567,7 @@ def insert_decision(run_id: int, seq: int, timestamp: str, game_state: str,
         health_max=health_max,
         api_game_state_id=api_game_state_id,
         phase_actual=phase_actual,
+        api_game_state_id_at_offer=api_game_state_id_at_offer,
     )
 
 
@@ -567,15 +586,17 @@ def _insert_decision_impl(run_id: int, seq: int, timestamp: str, game_state: str
                            health: Optional[int] = None,
                            health_max: Optional[int] = None,
                            api_game_state_id: Optional[int] = None,
-                           phase_actual: Optional[str] = None) -> int:
+                           phase_actual: Optional[str] = None,
+                           api_game_state_id_at_offer: Optional[int] = None) -> int:
     conn = get_shared_conn()
     cur = conn.execute("""
         INSERT INTO decisions
             (run_id, decision_seq, timestamp, game_state, decision_type,
              offered, chosen_id, chosen_template, rejected, board_section, target_socket,
              score_notes, board_snapshot_json, offered_names, offered_templates,
-             day, hour, gold, health, health_max, api_game_state_id, phase_actual)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             day, hour, gold, health, health_max, api_game_state_id, phase_actual,
+             api_game_state_id_at_offer)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
     """, (run_id, seq, timestamp, game_state, decision_type,
           json.dumps(offered), chosen_id, chosen_template,
@@ -583,7 +604,8 @@ def _insert_decision_impl(run_id: int, seq: int, timestamp: str, game_state: str
           board_snapshot_json or None,
           json.dumps(offered_names) if offered_names is not None else None,
           json.dumps(offered_templates) if offered_templates is not None else None,
-          day, hour, gold, health, health_max, api_game_state_id, phase_actual))
+          day, hour, gold, health, health_max, api_game_state_id, phase_actual,
+          api_game_state_id_at_offer))
     dec_id = cur.fetchone()[0]
     return dec_id
 
