@@ -167,7 +167,11 @@ def tail_log(log_path: Path, state: RunState, start_pos: int = 0):
             time.sleep(1)
 
 
-def run_watcher(log_path: Optional[Path] = None, parse_only: bool = False):
+def run_watcher(
+    log_path: Optional[Path] = None,
+    parse_only: bool = False,
+    event_source: str = "both",
+):
     # Init DB
     db.init_db()
     db.start_writer()
@@ -195,7 +199,23 @@ def run_watcher(log_path: Optional[Path] = None, parse_only: bool = False):
     state = RunState(
         str(log_path),
         on_run_complete=build_run_complete_handler(),
+        event_source=event_source,
     )
+
+    # Wire the Mono event adapter when the event source includes Mono.
+    # capture_mono must already be running (started by coach.py before watcher)
+    # for its in-process handle_game_state() to fire; when launched as a separate
+    # subprocess the adapter call in handle_game_state() is a no-op (the
+    # subprocess has its own _mono_event_adapter = None).
+    if event_source in ("mono", "both"):
+        try:
+            import capture_mono
+            from mono_event_adapter import MonoEventAdapter
+            adapter = MonoEventAdapter(state, event_source=event_source)
+            capture_mono.register_event_adapter(adapter)
+            print(f"[Watcher] MonoEventAdapter registered (event_source={event_source})")
+        except Exception as _wire_exc:
+            print(f"[Watcher] MonoEventAdapter registration failed (non-fatal): {_wire_exc}")
 
     # Wire the overlay's "End Run" POST handler to RunState.force_end so the
     # in-memory _run_closed flag flips in lock-step with the DB row. Guarded

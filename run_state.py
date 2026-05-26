@@ -20,6 +20,7 @@ Combat outcomes:
 """
 
 import json
+import time
 import threading
 from dataclasses import dataclass, field
 
@@ -31,6 +32,101 @@ from name_resolver import NameResolver
 from shop_session import ShopSession
 from web.offer_snapshot import find_offer_snapshot
 from typing import Callable, Optional
+
+
+# ---------------------------------------------------------------------------
+# Dedup ring buffer — drops duplicate events from both pipelines
+# ---------------------------------------------------------------------------
+
+class _RecentEvents:
+    """
+    Ring buffer that deduplicates events arriving from both the log watcher
+    and the Mono adapter within a short collision window.
+
+    Keyed by (event_kind, match_key). The match_key is derived per-event-type
+    per the dedup matrix in the #134 spec.
+    """
+
+    WINDOW_MS: float = 500.0
+
+    def __init__(self):
+        self._seen: dict[tuple, float] = {}  # key → monotonic_ms of first arrival
+
+    def _now_ms(self) -> float:
+        return time.monotonic() * 1000.0
+
+    def check_and_record(self, event: dict) -> bool:
+        """Return True if the event is a duplicate (caller should drop it).
+
+        Also records events that are NOT duplicates so future arrivals can
+        be matched against them.
+        """
+        key = self._make_key(event)
+        if key is None:
+            return False  # unkeyed event — always pass through
+
+        now = self._now_ms()
+        # Prune stale entries first to bound memory
+        stale = [k for k, t in self._seen.items() if now - t > self.WINDOW_MS * 4]
+        for k in stale:
+            del self._seen[k]
+
+        if key in self._seen:
+            age = now - self._seen[key]
+            if age <= self.WINDOW_MS:
+                return True  # duplicate within window — drop
+
+        self._seen[key] = now
+        return False
+
+    @staticmethod
+    def _make_key(event: dict):
+        """Return a hashable dedup key for an event, or None to skip deduplication."""
+        etype = event.get("event")
+        if etype == "state_change":
+            return ("state_change", event.get("from_state"), event.get("to_state"))
+        if etype == "cards_dealt":
+            ids = event.get("instance_ids") or []
+            return ("cards_dealt", frozenset(ids))
+        if etype == "cards_disposed":
+            ids = event.get("instance_ids") or []
+            return ("cards_disposed", frozenset(ids))
+        if etype == "cards_spawned":
+            ids = event.get("instance_ids") or []
+            return ("cards_spawned", frozenset(ids))
+        if etype == "card_purchased":
+            return ("card_purchased", event.get("instance_id"))
+        if etype == "card_sold":
+            return ("card_sold", event.get("instance_id"))
+        if etype == "card_moved":
+            return ("card_moved", event.get("instance_id"), event.get("to_socket"))
+        if etype == "card_transformed":
+            return ("card_transformed",
+                    event.get("from_instance_id"), event.get("to_instance_id"))
+        if etype == "skill_selected":
+            return ("skill_selected", event.get("instance_id"), event.get("socket"))
+        if etype == "reroll":
+            shop_id = event.get("shop_window_id")
+            return ("reroll", shop_id) if shop_id is not None else None
+        if etype == "combat_start":
+            return ("combat_start",)
+        if etype == "combat_complete":
+            return ("combat_complete",)
+        # run_start/run_victory/run_defeat are keyed by timestamp so that a
+        # genuine second run boundary (new run) is never dropped.  The dedup
+        # window is 500 ms, which is tight enough to catch log+mono duplicates
+        # for the same event while still passing distinct timestamps.
+        if etype in ("run_start", "run_victory", "run_defeat"):
+            return (etype, event.get("ts"))
+        if etype == "session_id":
+            return ("session_id", event.get("session_id"))
+        if etype == "account_id":
+            return ("account_id", event.get("account_id"))
+        if etype == "hero":
+            return ("hero", event.get("hero"))
+        if etype == "run_init_complete":
+            return ("run_init_complete",)
+        return None
 
 
 @dataclass
@@ -48,15 +144,25 @@ class OfferBatch:
 
 class RunState:
 
-    def __init__(self, log_path: str, on_run_complete: Optional[Callable[[dict], None]] = None):
+    def __init__(
+        self,
+        log_path: str,
+        on_run_complete: Optional[Callable[[dict], None]] = None,
+        event_source: str = "both",
+    ):
         self.log_path = log_path
         self.on_run_complete = on_run_complete
         self.emit_completion_callbacks = True
+        # "log" | "mono" | "both" — controls which pipelines are accepted and
+        # whether synthetic session/account ids are used for run init.
+        self.event_source: str = event_source
         # Serializes process() and force_end() so an out-of-thread force-end
         # request (from the Flask request thread) cannot race with the watcher
         # thread mid-event. Reentrant because force_end() calls _on_run_end()
         # which the watcher also reaches through process().
         self._lock = threading.RLock()
+        # Cross-pipeline dedup ring buffer — shared across all process() calls.
+        self._dedup: _RecentEvents = _RecentEvents()
         self._reset_run_state()
 
     def _reset_run_state(self):
@@ -108,11 +214,23 @@ class RunState:
 
     def process(self, event: dict):
         with self._lock:
+            # Cross-pipeline deduplication: when --event-source=both both the
+            # log watcher and the Mono adapter can emit the same logical event.
+            # The dedup ring buffer drops the second arrival within 500 ms.
+            if self._dedup.check_and_record(event):
+                return
+
             etype = event.get("event")
             ts = event.get("ts", "")
 
             if etype == "run_start":
                 self._on_run_start(ts)
+            elif etype == "run_init_complete":
+                # Mono-sourced run_init_complete can complete run initialisation
+                # when --event-source includes mono (synthetic ids already emitted
+                # by MonoEventAdapter's bootstrap sequence before this event).
+                if self.event_source in ("mono", "both"):
+                    self._try_init_run(ts)
             elif etype == "session_id":
                 self._on_session_id(ts, event["session_id"])
             elif etype == "account_id":
@@ -219,6 +337,10 @@ class RunState:
     def _try_init_run(self, ts: str):
         if self.run_id is not None:
             return
+        # When the event source includes Mono, synthetic session_id/account_id
+        # are emitted by MonoEventAdapter before the run_init_complete event,
+        # so the normal guard (session_id AND account_id) is sufficient for
+        # both pipelines. Log-only mode follows exactly the same path.
         if not (self.session_id and self.account_id):
             return
 

@@ -156,8 +156,10 @@ def wait_for_web_server(port: int, timeout: float = 5.0) -> bool:
 def run_tracker_watcher(args):
     import watcher
 
+    event_source = getattr(args, "event_source", "both")
     watcher.run_watcher(
         log_path=Path(args.log) if args.log else None,
+        event_source=event_source,
     )
 
 
@@ -416,11 +418,22 @@ def main():
                         help="Do not launch the overlay window")
     parser.add_argument("--no-refresh-builds", action="store_true",
                         help="Do not refresh build catalogs when the web server starts")
+    parser.add_argument(
+        "--event-source",
+        choices=["log", "mono", "both"],
+        default="both",
+        help=(
+            "Event source for run decisions. "
+            "'log' — Player.log only (today's default behaviour); "
+            "'mono' — Mono snapshot deltas only (experimental); "
+            "'both' — run both and deduplicate (default, soak mode)."
+        ),
+    )
     args = parser.parse_args()
 
     mono_proc = None
     should_launch_overlay = not args.no_overlay
-    should_launch_mono = not args.no_mono
+    should_launch_mono = not args.no_mono and args.event_source != "log"
     
     # Install signal handlers for graceful shutdown
     _install_signal_handlers()
