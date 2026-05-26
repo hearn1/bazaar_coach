@@ -38,7 +38,7 @@ def test_event_choice_no_exception_when_snapshot_absent(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoopScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-evt-missing"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-evt-missing"})

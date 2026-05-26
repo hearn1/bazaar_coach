@@ -447,8 +447,16 @@ def collect_doctor_report() -> dict:
     log_path = find_player_log_path()
     checks.append(_result(
         "Player.log",
-        "ok" if log_path.exists() else "warn",
-        f"Found Player.log at {log_path}" if log_path.exists() else f"Player.log not found at expected path: {log_path}",
+        "ok" if log_path.exists() else "info",
+        (
+            f"Found Player.log at {log_path} (diagnostics only — the coach no longer reads this file)"
+            if log_path.exists()
+            else (
+                f"Player.log not found at expected path: {log_path}. "
+                "This is not an error — the coach uses the Mono/Frida pipeline, "
+                "not Player.log. If Frida fails to attach, there is no log-based fallback."
+            )
+        ),
         path=str(log_path),
     ))
 

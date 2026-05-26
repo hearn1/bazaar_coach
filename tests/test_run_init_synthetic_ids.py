@@ -55,7 +55,7 @@ def test_synthetic_ids_populated_on_mono_source(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NullScorer)
 
-    state = RunState("Player.log", event_source="mono")
+    state = RunState(event_source="mono")
     adapter = MonoEventAdapter(state, event_source="mono")
 
     # Feed a single snapshot — adapter emits bootstrap events then run_init_complete
@@ -89,7 +89,7 @@ def test_run_init_from_run_init_complete_event(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NullScorer)
 
-    state = RunState("Player.log", event_source="mono")
+    state = RunState(event_source="mono")
 
     # Manually set synthetic ids (normally done by MonoEventAdapter bootstrap)
     state.process({"event": "run_start", "ts": "10:00", "source": "mono"})

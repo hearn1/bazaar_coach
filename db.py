@@ -7,8 +7,8 @@ Performance notes:
   - PRAGMA synchronous=NORMAL is safe in WAL mode — only risks data
     loss on OS crash (not app crash). Eliminates per-commit fsync.
   - A background writer thread handles all live gameplay writes so the
-    watcher thread (which processes Player.log lines) never blocks on
-    disk I/O. Writes that need a return value (insert_decision) use a
+    Mono adapter thread never blocks on disk I/O. Writes that need a
+    return value (insert_decision) use a
     one-shot Future; fire-and-forget writes (insert_combat,
     update_decision_rejected) are fully async.
   - flush() drains the write queue and commits. Call at natural breakpoints.

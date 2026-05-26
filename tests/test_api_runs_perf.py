@@ -254,7 +254,7 @@ def test_api_runs_prefers_mono_anchored_run_record(tmp_path, monkeypatch):
     conn = sqlite3.connect(db)
 
     r1 = _seed_run(conn, hero="Karnok", outcome="defeat")
-    # Stale Player.log-derived rows should not win when Mono can describe the run.
+    # Stale pre-Mono rows should not win when Mono can describe the run.
     _seed_combat(conn, r1, "pve", "opponent_died")
     _seed_decision(conn, r1, 1, api_game_state_id=10)
 

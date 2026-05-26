@@ -81,7 +81,7 @@ def test_offer_snapshot_attached_to_purchase_decision(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-offer-1"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-1"})
@@ -139,7 +139,7 @@ def test_offer_snapshot_null_when_no_snapshot(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-no-snap"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-2"})
@@ -196,7 +196,7 @@ def test_offer_snapshot_not_attached_from_prior_run(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-prior-guard"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-3"})

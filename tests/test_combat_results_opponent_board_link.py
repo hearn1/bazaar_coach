@@ -100,7 +100,7 @@ def test_combat_results_api_game_state_id_populated_when_mono_present(
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoOpLiveScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "sess-133"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "acc-1"})
@@ -136,7 +136,7 @@ def test_opponent_board_queryable_via_api_game_state_id(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoOpLiveScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "sess-133b"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "acc-2"})
@@ -182,7 +182,7 @@ def test_combat_results_api_game_state_id_null_when_mono_absent(
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoOpLiveScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "sess-133c"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "acc-3"})

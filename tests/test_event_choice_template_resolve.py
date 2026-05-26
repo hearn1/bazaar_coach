@@ -66,7 +66,7 @@ def test_event_choice_templates_resolved_from_mono_snapshot(tmp_path, monkeypatc
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoopScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-evt-1"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-evt-1"})
@@ -88,7 +88,7 @@ def test_event_choice_templates_resolved_from_mono_snapshot(tmp_path, monkeypatc
     finally:
         conn.close()
 
-    # Player.log signals: state → ChoiceState, cards offered, one chosen
+    # RunState events: state → ChoiceState, cards offered, one chosen
     state.process({"event": "state_change", "ts": "10:00:00", "to_state": "ChoiceState"})
     state.process({"event": "cards_dealt", "instance_ids": ["enc_alpha", "enc_beta", "ste_gamma"]})
     state.process({

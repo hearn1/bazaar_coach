@@ -53,7 +53,7 @@ def test_live_scorer_uses_live_day_phase_context(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "session-ctx"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "account-ctx"})

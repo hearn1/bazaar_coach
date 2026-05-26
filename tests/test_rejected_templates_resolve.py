@@ -83,7 +83,7 @@ def test_rejected_templates_populated_for_shop_purchase(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-rej-tpl-1"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-1"})
@@ -156,7 +156,7 @@ def test_rejected_templates_null_when_no_offer_snapshot(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-no-snap-2"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-2"})

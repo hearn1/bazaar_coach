@@ -138,23 +138,12 @@ Useful flags:
 
 ```powershell
 venv312\Scripts\python.exe coach.py --no-mono       # skip Frida/Mono subprocess
-venv312\Scripts\python.exe coach.py --no-overlay    # headless watcher + Flask only
-venv312\Scripts\python.exe coach.py --log "PATH"    # override Player.log autodetect
+venv312\Scripts\python.exe coach.py --no-overlay    # headless Mono + Flask only
 ```
 
 Dashboard: `http://127.0.0.1:5555`.
 
 Session support log: `logs\coach_YYYYMMDD_HHMMSS.log` — the single most useful file for debugging.
-
-### Player.log location
-
-Auto-detected:
-
-```
-C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log
-```
-
-Use `--log "..."` only if your Bazaar log is elsewhere.
 
 ### Diagnostics
 
@@ -221,14 +210,13 @@ DB retention is opt-in: set `coach.db_retention_days` ≥ 90 in `settings.json` 
 
 ```
 coach.py                   # single entrypoint
-  ├─ watcher.py            # tails Player.log
-  │    ├─ parser.py        # regex → events
-  │    └─ run_state.py     # decisions → db.py
-  │         ├─ board_state.py
-  │         ├─ shop_session.py
-  │         └─ name_resolver.py
-  ├─ capture_mono.py       # Frida + Mono → snapshots → db.py
-  │    └─ capture_mono_agent.js  # embedded Frida JS agent
+  ├─ capture_mono.py       # Frida + Mono → MonoEventAdapter → run_state.py → db.py
+  │    ├─ capture_mono_agent.js  # embedded Frida JS agent
+  │    └─ mono_event_adapter.py  # translates snapshots → RunState events
+  │         └─ run_state.py     # decisions → db.py
+  │              ├─ board_state.py
+  │              ├─ shop_session.py
+  │              └─ name_resolver.py
   ├─ web/server.py         # Flask routes
   │    ├─ web/overlay_state.py
   │    ├─ web/review_builder.py
