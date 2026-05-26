@@ -80,6 +80,7 @@ class RunState:
         self.board = BoardState()
 
         self.combat_start_ts: Optional[str] = None
+        self._combat_start_api_game_state_id: Optional[int] = None
         self._pending_combat: Optional[dict] = None
         self._max_persisted_seq: int = 0
         self._current_combat_type: str = "pve"
@@ -150,6 +151,7 @@ class RunState:
                 self._on_card_moved(event)
             elif etype == "combat_start":
                 self.combat_start_ts = ts
+                self._combat_start_api_game_state_id = self._latest_snapshot_id_for_combat()
             elif etype == "combat_complete":
                 self._on_combat_complete(event)
             elif etype == "run_defeat":
@@ -611,6 +613,36 @@ class RunState:
             else:
                 still_pending.append((decision_id, instance_ids))
         self._pending_unresolved_decisions = still_pending
+
+    def _latest_snapshot_id_for_combat(self) -> Optional[int]:
+        """Return the most recent non-terminal Mono snapshot id for combat linkage.
+
+        Used at combat-start to stamp ``combat_results.api_game_state_id`` so
+        the opponent board cards (stored in ``api_cards`` with
+        ``category='opponent_board'``) can be retrieved by id.  Returns None
+        when Mono is absent or no snapshot has been captured yet for this run.
+        """
+        if not self.run_id:
+            return None
+        conn = db.get_conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT id FROM api_game_states
+                WHERE id > ?
+                  AND (run_state IS NULL OR run_state NOT IN ('EndRunDefeat', 'EndRunVictory'))
+                  AND (? IS NULL OR hero = ? OR hero IS NULL OR hero = '' OR hero = 'Unknown')
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (self._snapshot_baseline_id, self.hero, self.hero),
+            ).fetchone()
+            return row["id"] if row else None
+        except Exception as exc:
+            print(f"[RunState] Combat snapshot id lookup failed: {exc}")
+            return None
+        finally:
+            conn.close()
 
     def _build_live_decision_context(
         self,
@@ -1325,6 +1357,7 @@ class RunState:
             "player_board": self.board.player_board_list(),
             "opponent_board": [],
             "combat_type": self._current_combat_type,
+            "api_game_state_id": self._combat_start_api_game_state_id,
         }
 
     def _resolve_last_combat_outcome(self, outcome: str):
@@ -1340,6 +1373,7 @@ class RunState:
             duration_secs=pending["duration_secs"],
             player_board=pending["player_board"],
             opponent_board=pending["opponent_board"],
+            api_game_state_id=pending.get("api_game_state_id"),
         )
         icons = {"opponent_died": "✅ WIN", "player_died": "❌ LOSS", "pvp_unknown": "❓ PVP(?)"}
         type_label = "PVP" if combat_type == "pvp" else "PvE"

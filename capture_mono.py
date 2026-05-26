@@ -99,9 +99,8 @@ _DELTA_PLAYER_ATTRS = True
 # inferred move/buy/sell coverage, but it adds extra GameSim work during the
 # exact click paths where hitching is most noticeable (sell / event choice).
 _ACTION_EVENT_CARDS = False
-# Opponent board is not used by the live overlay path, so keep it out of the
-# default deferred snapshot payload unless explicitly requested for debugging.
-_CAPTURE_OPPONENT_BOARD = False
+# Opponent board is needed for PvP retrospective scoring — capture by default.
+_CAPTURE_OPPONENT_BOARD = True
 # ENABLE_PROBES kept disabled (noisy, not needed)
 _ENABLE_PROBES = False
 # ENABLE_BROAD_HOOKS kept disabled (narrow hooks sufficient)

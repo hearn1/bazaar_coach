@@ -26,7 +26,7 @@ from typing import Optional
 import app_paths
 
 DB_PATH = app_paths.db_path()
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Shared connection for the live session (only touched by the writer thread
 # once start_writer() is called).
@@ -288,14 +288,15 @@ def _create_latest_tables(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS combat_results (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id          INTEGER REFERENCES runs(id),
-            timestamp       TEXT,
-            outcome         TEXT,
-            combat_type     TEXT DEFAULT 'pve',
-            duration_secs   REAL,
-            player_board    TEXT,
-            opponent_board  TEXT
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id              INTEGER REFERENCES runs(id),
+            timestamp           TEXT,
+            outcome             TEXT,
+            combat_type         TEXT DEFAULT 'pve',
+            duration_secs       REAL,
+            player_board        TEXT,
+            opponent_board      TEXT,
+            api_game_state_id   INTEGER NULL
         );
 
         CREATE TABLE IF NOT EXISTS card_cache (
@@ -368,7 +369,6 @@ def _create_latest_tables(conn: sqlite3.Connection) -> None:
             attr_value      REAL
         );
     """)
-    _create_latest_indexes(conn)
 
 
 def _create_latest_indexes(conn: sqlite3.Connection) -> None:
@@ -391,6 +391,8 @@ def _create_latest_indexes(conn: sqlite3.Connection) -> None:
             ON api_game_states(hero, captured_at);
         CREATE INDEX IF NOT EXISTS idx_api_gs_day_state
             ON api_game_states(day, run_state);
+        CREATE INDEX IF NOT EXISTS idx_combat_results_api_game_state
+            ON combat_results(api_game_state_id);
     """)
 
 
@@ -407,6 +409,16 @@ def _run_migrations(conn: sqlite3.Connection, current_version: int) -> None:
             "CREATE INDEX IF NOT EXISTS idx_decisions_offer_snapshot "
             "ON decisions(api_game_state_id_at_offer)"
         )
+    if current_version < 5:
+        # v4 → v5: Mono snapshot linkage for combat_results (opponent board capture)
+        existing_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(combat_results)").fetchall()
+        }
+        if "api_game_state_id" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE combat_results ADD COLUMN api_game_state_id INTEGER NULL"
+            )
 
 
 def migrate_db(conn: sqlite3.Connection) -> int:
@@ -694,22 +706,25 @@ def _update_decision_purchase_details_impl(
 
 
 def insert_combat(run_id: int, timestamp: str, outcome: str, combat_type: str,
-                  duration_secs: float, player_board: list, opponent_board: list):
+                  duration_secs: float, player_board: list, opponent_board: list,
+                  api_game_state_id: Optional[int] = None):
     _enqueue_fire_and_forget(
         _insert_combat_impl, run_id, timestamp, outcome, combat_type,
-        duration_secs, player_board, opponent_board,
+        duration_secs, player_board, opponent_board, api_game_state_id,
     )
 
 
 def _insert_combat_impl(run_id: int, timestamp: str, outcome: str, combat_type: str,
-                         duration_secs: float, player_board: list, opponent_board: list):
+                         duration_secs: float, player_board: list, opponent_board: list,
+                         api_game_state_id: Optional[int] = None):
     conn = get_shared_conn()
     conn.execute("""
         INSERT OR IGNORE INTO combat_results
-            (run_id, timestamp, outcome, combat_type, duration_secs, player_board, opponent_board)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (run_id, timestamp, outcome, combat_type, duration_secs, player_board,
+             opponent_board, api_game_state_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (run_id, timestamp, outcome, combat_type, duration_secs,
-          json.dumps(player_board), json.dumps(opponent_board)))
+          json.dumps(player_board), json.dumps(opponent_board), api_game_state_id))
 
 
 def lookup_card(template_id: str) -> Optional[dict]:
