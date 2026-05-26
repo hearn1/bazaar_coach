@@ -1344,6 +1344,23 @@ class RunState:
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
             live_context = self._build_live_decision_context("ChoiceState", offered, timestamp=event["ts"])
+
+            # Resolve chosen_template from the Mono offer snapshot when the
+            # Player.log line carries no template_id (event choices never do).
+            # offered_templates is keyed by instance_id → template_id and is
+            # populated by _build_live_decision_context from api_cards in the
+            # ChoiceState snapshot.
+            resolved_chosen_template = template_id or ""
+            if not resolved_chosen_template:
+                offered_templates = live_context.get("offered_templates") or {}
+                resolved_chosen_template = offered_templates.get(instance_id, "") or ""
+                if resolved_chosen_template:
+                    self.resolver.notify_template(instance_id, resolved_chosen_template)
+                    print(
+                        f"[RunState] Event choice template resolved from Mono: "
+                        f"{instance_id} → {resolved_chosen_template}"
+                    )
+
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1352,7 +1369,7 @@ class RunState:
                 decision_type="event_choice",
                 offered=offered,
                 chosen_id=instance_id,
-                chosen_template=template_id,
+                chosen_template=resolved_chosen_template,
                 rejected=rejected,
                 board_section="Opponent",
                 target_socket=event["target_socket"],
@@ -1365,14 +1382,18 @@ class RunState:
                 "decision_type": "event_choice",
                 "offered": json.dumps(offered),
                 "chosen_id": instance_id,
-                "chosen_template": template_id,
+                "chosen_template": resolved_chosen_template,
                 "rejected": json.dumps(rejected),
                 "board_section": "Opponent",
                 "game_state": "ChoiceState",
                 "score_notes": None,
                 **self._score_context_fields(live_context),
             })
-            name = card_cache.resolve_template_id(template_id) or instance_id
+            name = (
+                card_cache.resolve_template_id(resolved_chosen_template)
+                or card_cache.resolve_template_id(template_id)
+                or instance_id
+            )
             print(f"[Decision #{self.decision_seq}] 🗺  Event: {name} | Skipped {len(rejected)} others")
         self._offered = OfferBatch()
 
