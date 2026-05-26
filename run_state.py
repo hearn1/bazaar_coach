@@ -146,7 +146,7 @@ class RunState:
 
     def __init__(
         self,
-        log_path: str,
+        log_path: Optional[str] = None,
         on_run_complete: Optional[Callable[[dict], None]] = None,
         event_source: str = "both",
     ):
