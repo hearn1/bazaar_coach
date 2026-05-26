@@ -30,7 +30,7 @@ import scorer as _scorer
 from board_state import BoardState
 from name_resolver import NameResolver
 from shop_session import ShopSession
-from web.offer_snapshot import find_offer_snapshot
+from web.offer_snapshot import find_offer_snapshot, resolve_rejected_templates
 from typing import Callable, Optional
 
 
@@ -630,7 +630,12 @@ class RunState:
 
         if result.decision_ids:
             for decision_id in result.decision_ids:
-                db.update_decision_rejected(decision_id, leftovers)
+                # update_decision_rejected_with_templates writes both the rejected
+                # instance IDs and resolves rejected_templates_json from the offer
+                # snapshot in a single writer-thread operation — avoids a cross-
+                # thread DB read race that would appear if we read api_game_state_id_at_offer
+                # on the watcher thread before the writer has committed.
+                db.update_decision_rejected_with_templates(decision_id, leftovers)
             purchased_names = [self._resolve_instance_name(iid) for iid in result.purchased]
             rejected_names  = [self._resolve_instance_name(iid) for iid in leftovers]
             reroll_str = f" [r{result.reroll_count}]" if result.reroll_count else ""
@@ -771,6 +776,7 @@ class RunState:
         game_state: str,
         offered: list[str],
         timestamp: Optional[str] = None,
+        rejected: Optional[list[str]] = None,
     ) -> dict:
         """Attach the freshest compatible Mono snapshot to a Player.log decision.
 
@@ -795,6 +801,7 @@ class RunState:
             "api_game_state_id": None,
             "phase_actual": None,
             "api_game_state_id_at_offer": None,
+            "rejected_templates_json": None,
         }
         if not self.run_id:
             return context
@@ -888,6 +895,18 @@ class RunState:
                         offered_instance_ids=offered,
                     )
                     context["api_game_state_id_at_offer"] = offer_snap_id
+
+                    # Resolve template_ids for rejected offers using the offer
+                    # snapshot.  Only attempted when there are rejected IDs and
+                    # a snapshot was found.
+                    if rejected and offer_snap_id is not None:
+                        try:
+                            tpl_list = resolve_rejected_templates(
+                                conn, offer_snap_id, list(rejected)
+                            )
+                            context["rejected_templates_json"] = json.dumps(tpl_list)
+                        except Exception as exc:
+                            print(f"[RunState] Rejected template resolution failed: {exc}")
                 except Exception as exc:
                     print(f"[RunState] Offer-snapshot lookup failed: {exc}")
         except Exception as exc:
@@ -902,6 +921,7 @@ class RunState:
             score_context["offered_names"] = json.dumps(context["offered_names"])
         if context.get("offered_templates") is not None:
             score_context["offered_templates"] = json.dumps(context["offered_templates"])
+        # rejected_templates_json is already a JSON string (or None); pass as-is
         return score_context
 
     def _log_skip(self, ts: str):
@@ -915,7 +935,9 @@ class RunState:
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
             score_notes_payload = json.dumps({"resolved_names": names, "rerolls": self._shop.reroll_count})
-            live_context = self._build_live_decision_context("EncounterState", offered, timestamp=ts)
+            live_context = self._build_live_decision_context(
+                "EncounterState", offered, timestamp=ts, rejected=offered,
+            )
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1173,7 +1195,9 @@ class RunState:
         self._shop.set_inferred_purchase(instance_id, None)
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context("EncounterState", offered, timestamp=ts)
+            live_context = self._build_live_decision_context(
+                "EncounterState", offered, timestamp=ts, rejected=[],
+            )
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1291,7 +1315,9 @@ class RunState:
 
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context(self.current_state, offered, timestamp=event["ts"])
+            live_context = self._build_live_decision_context(
+                self.current_state, offered, timestamp=event["ts"], rejected=[],
+            )
             decision_id = db.insert_decision(
                 run_id=self.run_id,
                 seq=self.decision_seq,
@@ -1343,7 +1369,9 @@ class RunState:
 
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context("ChoiceState", offered, timestamp=event["ts"])
+            live_context = self._build_live_decision_context(
+                "ChoiceState", offered, timestamp=event["ts"], rejected=rejected,
+            )
 
             # Resolve chosen_template from the Mono offer snapshot when the
             # Player.log line carries no template_id (event choices never do).
@@ -1477,7 +1505,9 @@ class RunState:
 
         self.decision_seq += 1
         if self.decision_seq > self._max_persisted_seq:
-            live_context = self._build_live_decision_context(self.current_state, offered, timestamp=event["ts"])
+            live_context = self._build_live_decision_context(
+                self.current_state, offered, timestamp=event["ts"], rejected=rejected,
+            )
 
             # Resolve chosen_template via the offer snapshot when the resolver
             # does not already have a mapping (instance_id only in Player.log).

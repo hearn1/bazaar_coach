@@ -767,15 +767,15 @@ def handle_game_state(gs):
         try:
             _mono_event_adapter.process_snapshot(gs)
         except Exception as _adapter_exc:
-            print(f”[Mono] MonoEventAdapter.process_snapshot raised: {_adapter_exc}”)
+            print(f"[Mono] MonoEventAdapter.process_snapshot raised: {_adapter_exc}")
 
 
 def register_event_adapter(adapter) -> None:
-    “””Wire a MonoEventAdapter into handle_game_state().
+    """Wire a MonoEventAdapter into handle_game_state().
 
     Call from the coordinator (coach.py / watcher.py integration) after both
     RunState and MonoEventAdapter are constructed. Passing None clears the hook.
-    “””
+    """
     global _mono_event_adapter
     _mono_event_adapter = adapter
 

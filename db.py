@@ -26,7 +26,7 @@ from typing import Optional
 import app_paths
 
 DB_PATH = app_paths.db_path()
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Shared connection for the live session (only touched by the writer thread
 # once start_writer() is called).
@@ -284,7 +284,8 @@ def _create_latest_tables(conn: sqlite3.Connection) -> None:
             health_max          INTEGER,
             api_game_state_id           INTEGER,
             phase_actual                TEXT,
-            api_game_state_id_at_offer  INTEGER NULL
+            api_game_state_id_at_offer  INTEGER NULL,
+            rejected_templates_json     TEXT NULL
         );
 
         CREATE TABLE IF NOT EXISTS combat_results (
@@ -418,6 +419,13 @@ def _run_migrations(conn: sqlite3.Connection, current_version: int) -> None:
         if "api_game_state_id" not in existing_cols:
             conn.execute(
                 "ALTER TABLE combat_results ADD COLUMN api_game_state_id INTEGER NULL"
+            )
+    if current_version < 6:
+        # v5 → v6: rejected offer template resolution
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(decisions)").fetchall()}
+        if "rejected_templates_json" not in existing:
+            conn.execute(
+                "ALTER TABLE decisions ADD COLUMN rejected_templates_json TEXT NULL"
             )
 
 
@@ -564,7 +572,8 @@ def insert_decision(run_id: int, seq: int, timestamp: str, game_state: str,
                     health_max: Optional[int] = None,
                     api_game_state_id: Optional[int] = None,
                     phase_actual: Optional[str] = None,
-                    api_game_state_id_at_offer: Optional[int] = None) -> int:
+                    api_game_state_id_at_offer: Optional[int] = None,
+                    rejected_templates_json: Optional[str] = None) -> int:
     return _enqueue_with_result(
         _insert_decision_impl,
         run_id, seq, timestamp, game_state, decision_type, offered,
@@ -580,6 +589,7 @@ def insert_decision(run_id: int, seq: int, timestamp: str, game_state: str,
         api_game_state_id=api_game_state_id,
         phase_actual=phase_actual,
         api_game_state_id_at_offer=api_game_state_id_at_offer,
+        rejected_templates_json=rejected_templates_json,
     )
 
 
@@ -599,7 +609,8 @@ def _insert_decision_impl(run_id: int, seq: int, timestamp: str, game_state: str
                            health_max: Optional[int] = None,
                            api_game_state_id: Optional[int] = None,
                            phase_actual: Optional[str] = None,
-                           api_game_state_id_at_offer: Optional[int] = None) -> int:
+                           api_game_state_id_at_offer: Optional[int] = None,
+                           rejected_templates_json: Optional[str] = None) -> int:
     conn = get_shared_conn()
     cur = conn.execute("""
         INSERT INTO decisions
@@ -607,8 +618,8 @@ def _insert_decision_impl(run_id: int, seq: int, timestamp: str, game_state: str
              offered, chosen_id, chosen_template, rejected, board_section, target_socket,
              score_notes, board_snapshot_json, offered_names, offered_templates,
              day, hour, gold, health, health_max, api_game_state_id, phase_actual,
-             api_game_state_id_at_offer)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             api_game_state_id_at_offer, rejected_templates_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
     """, (run_id, seq, timestamp, game_state, decision_type,
           json.dumps(offered), chosen_id, chosen_template,
@@ -617,7 +628,7 @@ def _insert_decision_impl(run_id: int, seq: int, timestamp: str, game_state: str
           json.dumps(offered_names) if offered_names is not None else None,
           json.dumps(offered_templates) if offered_templates is not None else None,
           day, hour, gold, health, health_max, api_game_state_id, phase_actual,
-          api_game_state_id_at_offer))
+          api_game_state_id_at_offer, rejected_templates_json))
     dec_id = cur.fetchone()[0]
     return dec_id
 
@@ -665,6 +676,91 @@ def _update_decision_rejected_impl(decision_id: int, rejected: list):
     conn = get_shared_conn()
     conn.execute("UPDATE decisions SET rejected=? WHERE id=?",
                  (json.dumps(rejected), decision_id))
+
+
+def update_decision_rejected_with_templates(decision_id: int, rejected: list):
+    """Write rejected instance IDs and resolve their template_ids in one shot.
+
+    Reads api_game_state_id_at_offer from the decision row (already written by
+    insert_decision), then queries api_cards for each rejected instance_id to
+    build rejected_templates_json.  All done on the writer thread so no extra
+    connection is needed.
+    Fire-and-forget — no return value needed.
+    """
+    _enqueue_fire_and_forget(
+        _update_decision_rejected_with_templates_impl, decision_id, rejected
+    )
+
+
+def _update_decision_rejected_with_templates_impl(decision_id: int, rejected: list):
+    import card_cache as _cc
+    conn = get_shared_conn()
+
+    # Write the rejected instance IDs first.
+    conn.execute(
+        "UPDATE decisions SET rejected=? WHERE id=?",
+        (json.dumps(rejected), decision_id),
+    )
+
+    if not rejected:
+        return
+
+    # Look up the offer snapshot already stored on this decision.
+    row = conn.execute(
+        "SELECT api_game_state_id_at_offer FROM decisions WHERE id = ?",
+        (decision_id,),
+    ).fetchone()
+    offer_snap_id = row[0] if row else None
+
+    if offer_snap_id is None:
+        return
+
+    # Resolve template_ids from the offer snapshot.
+    placeholders = ",".join("?" for _ in rejected)
+    card_rows = conn.execute(
+        f"""
+        SELECT instance_id, template_id
+        FROM api_cards
+        WHERE game_state_id = ?
+          AND category = 'offered'
+          AND instance_id IN ({placeholders})
+          AND template_id IS NOT NULL
+          AND template_id != ''
+        """,
+        (offer_snap_id, *rejected),
+    ).fetchall()
+
+    template_map: dict[str, str] = {}
+    for card_row in card_rows:
+        iid = card_row[0]
+        tid = card_row[1]
+        if iid and tid and not _cc.is_suspicious_template_id(tid):
+            if iid not in template_map:
+                template_map[iid] = tid
+
+    tpl_list = [template_map.get(iid, "") for iid in rejected]
+    conn.execute(
+        "UPDATE decisions SET rejected_templates_json = ? WHERE id = ?",
+        (json.dumps(tpl_list), decision_id),
+    )
+
+
+def update_decision_rejected_templates(decision_id: int, rejected_templates_json: str):
+    """Write resolved template_ids for rejected offers back to a decision row.
+
+    Fire-and-forget — no return value needed.
+    """
+    _enqueue_fire_and_forget(
+        _update_decision_rejected_templates_impl, decision_id, rejected_templates_json
+    )
+
+
+def _update_decision_rejected_templates_impl(decision_id: int, rejected_templates_json: str):
+    conn = get_shared_conn()
+    conn.execute(
+        "UPDATE decisions SET rejected_templates_json = ? WHERE id = ?",
+        (rejected_templates_json, decision_id),
+    )
 
 
 def update_decision_purchase_details(
