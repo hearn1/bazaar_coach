@@ -14,12 +14,11 @@ Current version: `APP_VERSION` in `version.py`.
 # Install runtime + test dependencies (Python 3.10+)
 pip install -r requirements.txt
 
-# One-command workflow: log watcher + Mono capture + Flask dashboard + PyWebView overlay.
-# Decisions are scored live by LiveScorer as they insert.
+# One-command workflow: Mono capture + Flask dashboard + PyWebView overlay.
+# Decisions are scored live by LiveScorer as they insert via MonoEventAdapter.
 venv312\Scripts\python.exe coach.py
 venv312\Scripts\python.exe coach.py --no-mono       # skip Frida/Mono subprocess
-venv312\Scripts\python.exe coach.py --no-overlay    # headless (watcher + Flask only)
-venv312\Scripts\python.exe coach.py --log "PATH"    # override Player.log autodetect
+venv312\Scripts\python.exe coach.py --no-overlay    # headless (Mono + Flask only)
 
 # Setup / diagnostics
 venv312\Scripts\python.exe coach.py setup-status
@@ -33,17 +32,13 @@ venv312\Scripts\python.exe coach.py refresh-builds         # latest hero catalog
 venv312\Scripts\python.exe coach.py refresh-images         # card image cache
 venv312\Scripts\python.exe coach.py catalog-coverage --hero Karnok
 
-# Watcher in isolation (debugging)
-venv312\Scripts\python.exe watcher.py --parse-only         # one-shot parse of existing log
-venv312\Scripts\python.exe watcher.py --log "PATH"
-
 # Tests
 venv312\Scripts\python.exe -m pytest -q
 ```
 
 Dashboard: `http://127.0.0.1:5555` (`DEFAULT_WEB_PORT` in `coach.py`). Each session mirrors stdout/stderr to `logs/coach_YYYYMMDD_HHMMSS.log` — the file to share for debugging.
 
-Auto-detected Player.log: `C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaar\Player.log`. Project is Windows-targeted at runtime; `frida`, `watchdog`, `pywebview` are unpinned in `requirements.txt` because they're Windows-venv- or game-build-dependent.
+Project is Windows-targeted at runtime; `frida`, `watchdog`, `pywebview` are unpinned in `requirements.txt` because they're Windows-venv- or game-build-dependent. Player.log autodetect (`app_paths.find_player_log`) is retained for `coach.py doctor` diagnostics only — it is no longer part of the decision pipeline.
 
 ## Files to skip unless directly relevant
 
@@ -56,14 +51,13 @@ Auto-detected Player.log: `C:\Users\<You>\AppData\LocalLow\Tempo Storm\The Bazaa
 
 ```
 coach.py                   # entrypoint - launches the subsystems below
-  ├─ watcher.py            # tails Player.log
-  │    ├─ parser.py        # regex → event dicts
-  │    └─ run_state.py     # state machine → decisions → db.py
-  │         ├─ board_state.py    # authoritative inventory tracker
-  │         ├─ shop_session.py   # shop-visit state machine
-  │         └─ name_resolver.py  # instance_id → human name (lazy retry)
-  ├─ capture_mono.py       # Frida + Mono hooks → game-state snapshots → db.py
-  │    └─ capture_mono_agent.js  # embedded Frida JS agent (loaded as raw string)
+  ├─ capture_mono.py       # Frida + Mono hooks → MonoEventAdapter → run_state.py → db.py
+  │    ├─ capture_mono_agent.js  # embedded Frida JS agent (loaded as raw string)
+  │    └─ mono_event_adapter.py  # translates Mono snapshots → RunState events
+  │         └─ run_state.py     # state machine → decisions → db.py
+  │              ├─ board_state.py    # authoritative inventory tracker
+  │              ├─ shop_session.py   # shop-visit state machine
+  │              └─ name_resolver.py  # instance_id → human name (lazy retry)
   ├─ web/server.py         # Flask routes only
   │    ├─ web/overlay_state.py   # /api/overlay/state payload assembly
   │    ├─ web/review_builder.py  # overlay review row construction
@@ -76,8 +70,7 @@ coach.py                   # entrypoint - launches the subsystems below
 
 ## Data flow
 
-- **Pipeline A — Player.log → watcher → run_state.** Authoritative for decisions: offered/chosen/rejected sets, shops, skills, events, skips, sells. BoardState writes `board_snapshot_json` at every `insert_decision`. LiveScorer writes `score_label` immediately after the insert.
-- **Pipeline B — capture_mono.py → Frida.** Enrichment: HP, gold, day/hour, prestige, PvP record, and authoritative `template_id` for name resolution via `NameResolver.notify_template()`.
+- **Mono pipeline — capture_mono.py → MonoEventAdapter → run_state.** Authoritative for all decisions: offered/chosen/rejected sets, shops, skills, events, skips, sells, HP, gold, day/hour, prestige, PvP record, and authoritative `template_id` for name resolution via `NameResolver.notify_template()`. BoardState writes `board_snapshot_json` at every `insert_decision`. LiveScorer writes `score_label` immediately after the insert.
 - **Live Mono context.** `RunState._build_live_decision_context` looks up the latest compatible Mono snapshot at decision insert and stores `day/hour/gold/health/health_max/phase_actual/api_game_state_id/offered_names/offered_templates` on the `decisions` row before scoring.
 - **scorer.py.** Phase-aware scoring against hero-specific build JSON catalogs. Prefers the writable copy in `app_paths.data_dir()/builds/`, falls back to bundled catalogs. `LiveScorer` scores at decision time; stored scores are authoritative — normal flow never bridges, rescores, or rewrites them.
 
@@ -115,7 +108,7 @@ coach.py                   # entrypoint - launches the subsystems below
 
 ## Known quirks (not blocking)
 
-- Mono can be absent or late. Decisions still insert and score via fallback heuristics; future decisions use live context once snapshots arrive.
+- Mono can be absent or late to attach (Frida startup latency). Decisions will not be recorded until the first snapshot arrives; `coach.py doctor` reports Frida/Mono status. There is no log-based fallback after this release.
 - `fast_dict_fail` ~41% — managed dict is genuinely mid-update when hook fires. JS-side `_lastGoodAttrs` cache covers gaps (Gold missing = 0%).
 - SelectionSet content-hash cache `selset_hits` may show 0 if no action-card states were seen this run; the cache only triggers in Choice/Loot/LevelUp states.
 - `_directReadMonoString` auto-detects chars offset on first call (12 or 16, depending on Mono build).

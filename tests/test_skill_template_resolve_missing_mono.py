@@ -36,7 +36,7 @@ def test_skill_decision_written_without_mono(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoopScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-no-mono"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-no-mono"})
@@ -78,7 +78,7 @@ def test_skill_decision_no_exception_on_missing_mono(tmp_path, monkeypatch):
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoopScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-no-exc"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-no-exc"})
@@ -113,7 +113,7 @@ def test_skill_decision_fallback_when_no_offer_snapshot_match(tmp_path, monkeypa
     db.init_db()
     monkeypatch.setattr(run_state._scorer, "LiveScorer", _NoopScorer)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-no-match"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-no-match"})

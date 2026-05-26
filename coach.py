@@ -1,9 +1,9 @@
 """
 coach.py — Unified Bazaar Coach runner.
 
-Starts the Player.log watcher in-process and, by default, launches the
-Mono capture pipeline in a background subprocess. Decisions are scored live
-as RunState records them; run completion closes the run and flushes writes.
+Launches the Mono capture pipeline in a background subprocess. Decisions are
+scored live as RunState records them via the MonoEventAdapter; run completion
+closes the run and flushes writes.
 
 Graceful shutdown is triggered by:
   - Ctrl+C (SIGINT) / Task Manager (SIGTERM)
@@ -151,16 +151,6 @@ def wait_for_web_server(port: int, timeout: float = 5.0) -> bool:
         except OSError:
             time.sleep(0.1)
     return False
-
-
-def run_tracker_watcher(args):
-    import watcher
-
-    event_source = getattr(args, "event_source", "both")
-    watcher.run_watcher(
-        log_path=Path(args.log) if args.log else None,
-        event_source=event_source,
-    )
 
 
 def print_startup_versions():
@@ -406,10 +396,8 @@ def main():
     log_handle, original_stdout, original_stderr = start_session_logging()
     
     parser = argparse.ArgumentParser(
-        description="Unified Bazaar Coach runner (watcher + Flask dashboard + overlay + mono capture)"
+        description="Unified Bazaar Coach runner (Mono capture + Flask dashboard + overlay)"
     )
-    parser.add_argument("--log", type=str, default=None,
-                        help="Path to Player.log (auto-detected if omitted)")
     parser.add_argument("--no-mono", action="store_true",
                         help="Do not launch capture_mono in a subprocess")
     parser.add_argument("--mono-process", type=str, default="TheBazaar.exe",
@@ -421,23 +409,23 @@ def main():
     parser.add_argument(
         "--event-source",
         choices=["log", "mono", "both"],
-        default="both",
+        default="mono",
         help=(
             "Event source for run decisions. "
-            "'log' — Player.log only (today's default behaviour); "
-            "'mono' — Mono snapshot deltas only (experimental); "
-            "'both' — run both and deduplicate (default, soak mode)."
+            "'mono' — Mono snapshot deltas (default); "
+            "'both' — run Mono and log-watcher in parallel, deduplicate (soak mode, opt-in); "
+            "'log' — Player.log only (legacy opt-in, not supported in this release)."
         ),
     )
     args = parser.parse_args()
 
     mono_proc = None
     should_launch_overlay = not args.no_overlay
-    should_launch_mono = not args.no_mono and args.event_source != "log"
-    
+    should_launch_mono = not args.no_mono
+
     # Install signal handlers for graceful shutdown
     _install_signal_handlers()
-    
+
     # Ensure settings are saved even if an exception occurs
     atexit.register(settings.save)
 
@@ -457,7 +445,7 @@ def main():
             summary = db.prune_old_runs(_retention_days)
             print(f"[Retention] Deleted {summary['deleted_runs']} runs older than {_retention_days}d (decisions={summary['deleted_decisions']}, combats={summary['deleted_combats']})")
         print_startup_versions()
-        
+
         from web.server import start_web_server, set_shutdown_callback
         start_web_server(
             port=DEFAULT_WEB_PORT,
@@ -465,7 +453,7 @@ def main():
             background=True,
             auto_refresh_builds=not args.no_refresh_builds,
         )
-        
+
         # Register the shutdown callback so Flask endpoint can trigger shutdown
         set_shutdown_callback(lambda: shutdown_event.set())
 
@@ -478,24 +466,12 @@ def main():
             mono_proc = launch_capture_mono(process_name=args.mono_process)
 
         if should_launch_overlay:
-            # PyWebView must own the main thread on this setup, so run the
-            # watcher in the background and let the overlay block on the main
-            # thread for the life of the process.
-            threading.Thread(
-                target=run_tracker_watcher,
-                args=(args,),
-                daemon=True,
-                name="watcher",
-            ).start()
+            # PyWebView must own the main thread; let the overlay block it for
+            # the life of the process.  The Mono subprocess pumps events in the
+            # background via its own daemon thread.
             overlay.launch_overlay(port=DEFAULT_WEB_PORT)
         else:
-            # Headless mode: watcher in background, main thread waits for shutdown
-            threading.Thread(
-                target=run_tracker_watcher,
-                args=(args,),
-                daemon=True,
-                name="watcher",
-            ).start()
+            # Headless mode: main thread waits for shutdown signal
             shutdown_event.wait()
     except KeyboardInterrupt:
         print("\n[Coach] Stopped.")

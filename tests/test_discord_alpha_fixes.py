@@ -134,7 +134,7 @@ def test_register_and_flush_unresolved(tmp_path, monkeypatch):
     db.start_writer()
 
     try:
-        rs = RunState(log_path=str(path))
+        rs = RunState()
         rs.run_id = db.upsert_run("sess-flush", "", "Karnok", "2025-01-01T00:00:00", str(path))
         rs.resolver.set_run_id(rs.run_id)
 
@@ -177,7 +177,7 @@ def test_pending_unresolved_capped_at_ten(tmp_path, monkeypatch):
     db.init_db()
 
     from run_state import RunState
-    rs = RunState(log_path=str(path))
+    rs = RunState()
     rs.run_id = 1
 
     for i in range(15):

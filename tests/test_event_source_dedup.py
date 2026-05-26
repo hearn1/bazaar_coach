@@ -137,7 +137,7 @@ def test_card_purchased_dedup_via_run_state(tmp_path, monkeypatch):
     monkeypatch.setattr(_cc, "_template_name_cache_loaded", False)
     monkeypatch.setattr(_cc, "_template_name_cache", {})
 
-    state = RunState("Player.log", event_source="both")
+    state = RunState(event_source="both")
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "sess-dedup-1"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "acct-dedup-1"})

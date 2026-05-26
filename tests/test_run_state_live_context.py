@@ -52,7 +52,7 @@ def test_run_state_decision_insert_includes_live_context(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "session-1"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "account-1"})
@@ -146,7 +146,7 @@ def test_prior_run_snapshot_does_not_stamp_new_run_decision(tmp_path, monkeypatc
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "session-new"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "account-new"})
@@ -200,7 +200,7 @@ def test_post_init_snapshot_attaches_even_with_prior_terminal(tmp_path, monkeypa
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "session-x"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "account-x"})
@@ -265,7 +265,7 @@ def test_terminal_snapshot_after_init_still_excluded(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "session-t"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "account-t"})
@@ -330,7 +330,7 @@ def test_on_run_start_closes_prior_open_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db, "close_run", recording_close_run)
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00"})
     state.process({"event": "session_id", "ts": "10:00", "session_id": "session-1"})
     state.process({"event": "account_id", "ts": "10:00", "account_id": "account-1"})

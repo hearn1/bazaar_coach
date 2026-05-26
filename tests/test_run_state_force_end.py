@@ -38,7 +38,7 @@ def test_force_end_closes_active_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db, "close_run", recording_close_run)
 
-    state = RunState("Player.log")
+    state = RunState()
     _bootstrap_active_run(state)
     run_id = state.run_id
     assert run_id is not None
@@ -80,7 +80,7 @@ def test_force_end_is_idempotent(tmp_path, monkeypatch):
         ),
     )
 
-    state = RunState("Player.log")
+    state = RunState()
     _bootstrap_active_run(state)
 
     assert state.force_end("10:30") is True
@@ -108,7 +108,7 @@ def test_force_end_before_any_run_is_noop(tmp_path, monkeypatch):
         ),
     )
 
-    state = RunState("Player.log")
+    state = RunState()
     assert state.run_id is None
 
     assert state.force_end("10:00") is False
@@ -147,7 +147,7 @@ def test_force_end_then_run_start_does_not_double_close(tmp_path, monkeypatch):
         ),
     )
 
-    state = RunState("Player.log")
+    state = RunState()
     _bootstrap_active_run(state)
     first_run_id = state.run_id
 

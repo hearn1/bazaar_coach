@@ -81,7 +81,7 @@ def test_chosen_template_populated_from_offer_snapshot(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-skill-1"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-skill-1"})
@@ -153,7 +153,7 @@ def test_offered_templates_covers_all_resolved_skills(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-skill-2"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-skill-2"})
@@ -212,7 +212,7 @@ def test_notify_template_called_for_resolved_skills(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    state = RunState("Player.log")
+    state = RunState()
     state.process({"event": "run_start", "ts": "10:00:00"})
     state.process({"event": "session_id", "ts": "10:00:00", "session_id": "sess-skill-3"})
     state.process({"event": "account_id", "ts": "10:00:00", "account_id": "acct-skill-3"})

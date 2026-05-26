@@ -3,7 +3,7 @@
 # unpinned packages are environment-sensitive (Windows-only venv or
 # game-build-dependent) and cannot be pinned from this checkout.
 
-# Log watching (Player.log tail)
+# File system event watcher (used by update_checker for portable swap; no longer used for Player.log)
 watchdog  # unpinned — Windows venv, not importable from this checkout
 
 # HTTP client (card cache, static API)

@@ -125,9 +125,12 @@ def run_setup(
     player_log = find_player_log_path()
     settings.set("setup.detected_player_log", str(player_log))
     if player_log.exists():
-        steps.append(_step("player_log", "Locate Player.log", "ok", f"Found {player_log}", path=str(player_log)))
+        steps.append(_step("player_log", "Locate Player.log", "ok",
+                           f"Found {player_log} (diagnostics only)", path=str(player_log)))
     else:
-        steps.append(_step("player_log", "Locate Player.log", "warn", f"Not found at expected path: {player_log}", path=str(player_log)))
+        steps.append(_step("player_log", "Locate Player.log", "info",
+                           f"Player.log not found at {player_log} — the coach uses the Mono/Frida pipeline",
+                           path=str(player_log)))
 
     cache_populated = card_cache.is_cache_populated()
     should_refresh_content = refresh_content == "always" or (refresh_content == "auto" and not cache_populated)

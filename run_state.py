@@ -1,5 +1,5 @@
 """
-run_state.py — Stateful assembler that turns a stream of parsed log events
+run_state.py — Stateful assembler that turns a stream of Mono events
 into complete Decision records ready to write to the DB.
 
 Decision types:
@@ -40,8 +40,8 @@ from typing import Callable, Optional
 
 class _RecentEvents:
     """
-    Ring buffer that deduplicates events arriving from both the log watcher
-    and the Mono adapter within a short collision window.
+    Ring buffer that deduplicates events arriving from multiple sources
+    within a short collision window.
 
     Keyed by (event_kind, match_key). The match_key is derived per-event-type
     per the dedup matrix in the #134 spec.
@@ -146,20 +146,20 @@ class RunState:
 
     def __init__(
         self,
-        log_path: Optional[str] = None,
+        log_path: str = "",
         on_run_complete: Optional[Callable[[dict], None]] = None,
-        event_source: str = "both",
+        event_source: str = "mono",
     ):
-        self.log_path = log_path
+        self.log_path = log_path or ""
         self.on_run_complete = on_run_complete
         self.emit_completion_callbacks = True
         # "log" | "mono" | "both" — controls which pipelines are accepted and
         # whether synthetic session/account ids are used for run init.
         self.event_source: str = event_source
         # Serializes process() and force_end() so an out-of-thread force-end
-        # request (from the Flask request thread) cannot race with the watcher
-        # thread mid-event. Reentrant because force_end() calls _on_run_end()
-        # which the watcher also reaches through process().
+        # request (from the Flask request thread) cannot race with the Mono
+        # adapter thread mid-event. Reentrant because force_end() calls
+        # _on_run_end() which the adapter also reaches through process().
         self._lock = threading.RLock()
         # Cross-pipeline dedup ring buffer — shared across all process() calls.
         self._dedup: _RecentEvents = _RecentEvents()
@@ -214,9 +214,9 @@ class RunState:
 
     def process(self, event: dict):
         with self._lock:
-            # Cross-pipeline deduplication: when --event-source=both both the
-            # log watcher and the Mono adapter can emit the same logical event.
-            # The dedup ring buffer drops the second arrival within 500 ms.
+            # Cross-pipeline deduplication: when --event-source=both the Mono
+            # adapter and any opt-in secondary source can emit the same logical
+            # event.  The dedup ring buffer drops the second arrival within 500 ms.
             if self._dedup.check_and_record(event):
                 return
 
@@ -312,7 +312,7 @@ class RunState:
 
     def _on_session_id(self, ts: str, session_id: str):
         """
-        Session ids are the strongest run boundary signal in Player.log.
+        Session ids are the strongest run boundary signal.
         If a new session id appears while a run is still open, close the old
         run defensively so subsequent decisions cannot bleed across runs.
         """
@@ -778,7 +778,7 @@ class RunState:
         timestamp: Optional[str] = None,
         rejected: Optional[list[str]] = None,
     ) -> dict:
-        """Attach the freshest compatible Mono snapshot to a Player.log decision.
+        """Attach the freshest compatible Mono snapshot to a decision.
 
         Also resolves `api_game_state_id_at_offer` — the pre-decision snapshot
         whose offered cards are a superset of the requested offered_instance_ids.
@@ -1374,7 +1374,7 @@ class RunState:
             )
 
             # Resolve chosen_template from the Mono offer snapshot when the
-            # Player.log line carries no template_id (event choices never do).
+            # event carries no template_id (event choices never do).
             # offered_templates is keyed by instance_id → template_id and is
             # populated by _build_live_decision_context from api_cards in the
             # ChoiceState snapshot.
@@ -1510,7 +1510,7 @@ class RunState:
             )
 
             # Resolve chosen_template via the offer snapshot when the resolver
-            # does not already have a mapping (instance_id only in Player.log).
+            # does not already have a mapping (instance_id arrives without template_id).
             if not template_id:
                 offer_snap_id = live_context.get("api_game_state_id_at_offer")
                 if offer_snap_id:
