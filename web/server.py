@@ -56,7 +56,7 @@ from web.build_helpers import (
     build_run_summary,
     invalidate_catalog_cache,
 )
-from web.overlay_state import build_overlay_state, _get_run_record
+from web.overlay_state import build_overlay_state, _get_run_record, get_combat_opponent_board
 from web.review_builder import format_decision_row
 from web.card_images import IMAGE_DIR as CARD_IMAGE_DIR, lookup_image_url
 
@@ -742,10 +742,20 @@ def api_combats(run_id: int):
     conn = _conn()
     try:
         combats = conn.execute("""
-            SELECT outcome, combat_type, duration_secs, timestamp
+            SELECT id, outcome, combat_type, duration_secs, timestamp, api_game_state_id
             FROM combat_results WHERE run_id=? ORDER BY id
         """, (run_id,)).fetchall()
         return jsonify(_rows_to_dicts(combats))
+    finally:
+        conn.close()
+
+
+@app.route("/api/combats/<int:combat_id>/opponent_board")
+def api_combat_opponent_board(combat_id: int):
+    conn = _conn()
+    try:
+        cards = get_combat_opponent_board(conn, combat_id)
+        return jsonify(cards)
     finally:
         conn.close()
 

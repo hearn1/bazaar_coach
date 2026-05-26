@@ -531,3 +531,35 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
         "phase_notes": get_phase_notes(current_day, build_data=build_data),
         "run_tier": run_tier,
     }
+
+
+# ── Combat opponent board helper ──────────────────────────────────────────────
+
+def get_combat_opponent_board(conn, combat_result_id: int) -> list[dict]:
+    """Return opponent board cards for a given combat_results row.
+
+    Fetches ``api_cards`` rows where ``category='opponent_board'`` for the
+    ``api_game_state_id`` linked to the combat.  Returns an empty list when
+    Mono was absent at fight-start or no opponent cards were captured.
+
+    Each returned dict has: ``instance_id``, ``template_id``, ``card_type``,
+    ``tier``, ``size``, ``owner``, ``section``, ``socket``.
+    """
+    row = conn.execute(
+        "SELECT api_game_state_id FROM combat_results WHERE id = ?",
+        (combat_result_id,),
+    ).fetchone()
+    if not row or row["api_game_state_id"] is None:
+        return []
+
+    game_state_id = row["api_game_state_id"]
+    cards = conn.execute(
+        """
+        SELECT instance_id, template_id, card_type, tier, size, owner, section, socket
+        FROM api_cards
+        WHERE game_state_id = ? AND category = 'opponent_board'
+        ORDER BY socket, id
+        """,
+        (game_state_id,),
+    ).fetchall()
+    return [dict(c) for c in cards]
