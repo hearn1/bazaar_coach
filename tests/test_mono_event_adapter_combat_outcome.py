@@ -83,3 +83,23 @@ def test_pvp_combat_state_also_triggers_combat_start():
     adapter.process_snapshot(_snap("PVPCombatState", ts="2026-01-01T00:00:02+00:00"))
 
     assert "combat_start" in collector.event_types()
+
+
+def test_bare_combat_state_triggers_combat_start():
+    collector = _Collector()
+    adapter = MonoEventAdapter(collector, event_source="mono")
+
+    adapter.process_snapshot(_snap("Encounter", ts="2026-01-01T00:00:01+00:00"))
+    adapter.process_snapshot(_snap("Combat", ts="2026-01-01T00:00:02+00:00"))
+
+    assert "combat_start" in collector.event_types()
+
+
+def test_bare_pvp_combat_state_triggers_combat_start():
+    collector = _Collector()
+    adapter = MonoEventAdapter(collector, event_source="mono")
+
+    adapter.process_snapshot(_snap("Encounter", ts="2026-01-01T00:00:01+00:00"))
+    adapter.process_snapshot(_snap("PVPCombat", ts="2026-01-01T00:00:02+00:00"))
+
+    assert "combat_start" in collector.event_types()

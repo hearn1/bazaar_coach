@@ -654,6 +654,7 @@ def _merge_partial_snapshot(gs):
 
     _prune_disabled_snapshot_cards(merged)
     _apply_event_template_recovery(merged)
+    _synthesize_snapshot_cards_from_events(merged)
 
     _last_merged_snapshot = {
         **merged,
@@ -1122,15 +1123,89 @@ def _infer_synthetic_event_category(gs: dict, event: dict) -> str | None:
     state_name = (gs.get("state") or {}).get("state")
     if state_name in {
         "Choice",
+        "ChoiceState",
         "Loot",
+        "LootState",
         "LevelUp",
+        "LevelUpState",
         "Pedestal",
+        "PedestalState",
         "Encounter",
+        "EncounterState",
         "EndRunVictory",
+        "EndRunVictoryState",
         "EndRunDefeat",
+        "EndRunDefeatState",
     }:
         return "offered"
     return None
+
+
+def _synthesize_snapshot_cards_from_events(gs: dict) -> list[dict]:
+    """Populate snapshot card lists from GameSim template events when needed.
+
+    The DB writer already had a row-level fallback for these events, but the
+    MonoEventAdapter runs before those rows exist. Mutating the snapshot here
+    lets adapter diffing and persistence see the same recovered identities.
+    """
+    existing_by_instance: dict[str, dict] = {}
+    for key in _CARD_LIST_KEYS:
+        for card in gs.get(key, []) or []:
+            if not isinstance(card, dict):
+                continue
+            instance_id = card.get("instance_id")
+            if not instance_id:
+                continue
+            existing = existing_by_instance.get(instance_id)
+            if existing is None:
+                existing_by_instance[instance_id] = card
+                continue
+            current_template = existing.get("template_id")
+            new_template = card.get("template_id")
+            if _is_suspicious_template_id(current_template) and not _is_suspicious_template_id(new_template):
+                existing_by_instance[instance_id] = card
+
+    synthesized: list[dict] = []
+    for event in gs.get("card_template_events") or []:
+        if not isinstance(event, dict):
+            continue
+        instance_id = event.get("instance_id")
+        template_id = event.get("template_id")
+        if not instance_id or not template_id or _is_suspicious_template_id(template_id):
+            continue
+
+        existing = existing_by_instance.get(instance_id)
+        if existing and existing.get("template_id") and not _is_suspicious_template_id(existing.get("template_id")):
+            continue
+
+        category = _infer_synthetic_event_category(gs, event)
+        if not category:
+            continue
+
+        card = {
+            "instance_id": instance_id,
+            "template_id": template_id,
+            "type": event.get("card_type"),
+            "_synthetic_from_event": event.get("event_type") or "gamesim_event",
+        }
+        gs.setdefault(category, []).append(card)
+        existing_by_instance[instance_id] = card
+        synthesized.append({
+            "instance_id": instance_id,
+            "template_id": template_id,
+            "category": category,
+            "event_type": event.get("event_type"),
+        })
+
+    if synthesized:
+        print(
+            f"[Mono] Synthesized snapshot cards from GameSim events "
+            f"snapshot_id={gs.get('id')} message_id={gs.get('message_id')} "
+            f"state={(gs.get('state') or {}).get('state')} "
+            f"count={len(synthesized)} sample={json.dumps(synthesized[:8], default=str)}"
+        )
+
+    return synthesized
 
 
 def _build_synthetic_event_card_rows(gs_id: int, gs: dict, existing_rows: list[tuple]) -> list[tuple]:
@@ -1243,6 +1318,7 @@ def _log_suspicious_snapshot_cards(gs):
 
 def _store_game_state_to_db_impl(gs):
     """Write the captured game state to api_game_states / api_cards tables."""
+    _synthesize_snapshot_cards_from_events(gs)
     try:
         import api_log
         api_log.init_api_tables()

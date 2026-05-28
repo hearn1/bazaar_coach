@@ -127,3 +127,34 @@ def test_cards_dealt_instance_ids_correct():
     dealt = [e for e in collector.events if e["event"] == "cards_dealt"]
     assert len(dealt) == 1
     assert set(dealt[0]["instance_ids"]) == {"itm_x", "itm_y"}
+
+
+def test_bare_encounter_state_emits_cards_dealt():
+    collector = _Collector()
+    adapter = MonoEventAdapter(collector, event_source="mono")
+
+    snap = _snap("Encounter")
+    snap["offered"] = [
+        {"instance_id": "itm_x", "template_id": "T_X"},
+        {"instance_id": "itm_y", "template_id": "T_Y"},
+    ]
+    adapter.process_snapshot(snap)
+
+    dealt = [e for e in collector.events if e["event"] == "cards_dealt"]
+    assert len(dealt) == 1
+    assert set(dealt[0]["instance_ids"]) == {"itm_x", "itm_y"}
+
+
+def test_bare_state_names_are_normalized_in_state_changes():
+    collector = _Collector()
+    adapter = MonoEventAdapter(collector, event_source="mono")
+
+    adapter.process_snapshot(_snap("NewRun"))
+    adapter.process_snapshot(_snap("Encounter", ts="2026-01-01T00:00:01+00:00"))
+    adapter.process_snapshot(_snap("Choice", ts="2026-01-01T00:00:02+00:00"))
+
+    state_changes = [e for e in collector.events if e["event"] == "state_change"]
+    assert any(
+        e.get("from_state") == "EncounterState" and e.get("to_state") == "ChoiceState"
+        for e in state_changes
+    )
