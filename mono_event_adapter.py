@@ -169,6 +169,14 @@ class MonoEventAdapter:
         ts = _ts_from_snapshot(snap)
         curr_state = _state_name(snap)
 
+        # Partial snapshots (rare; usually a deferred-cards payload that arrives
+        # before its parent state has been merged) carry no state name. Pre-#148
+        # these were filtered out by `_should_render_snapshot` before reaching
+        # the adapter; now that filter is gone, guard explicitly so diff logic
+        # never compares against a missing state.
+        if not curr_state:
+            return
+
         # ── Run boundary detection ──────────────────────────────────────
         if curr_state in ("NewRun", "RunInitialized"):
             self._handle_new_run(snap, ts)
