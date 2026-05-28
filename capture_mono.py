@@ -773,11 +773,60 @@ def handle_game_state(gs):
 def register_event_adapter(adapter) -> None:
     """Wire a MonoEventAdapter into handle_game_state().
 
-    Call from the coordinator (coach.py / watcher.py integration) after both
-    RunState and MonoEventAdapter are constructed. Passing None clears the hook.
+    Call from the coordinator after both RunState and MonoEventAdapter are
+    constructed. Passing None clears the hook. In normal subprocess operation
+    `_wire_run_state()` below performs this registration.
     """
     global _mono_event_adapter
     _mono_event_adapter = adapter
+
+
+# In-process RunState + adapter slots. Populated by `_wire_run_state()` when
+# capture_mono runs as the coach subprocess so that snapshots delivered to
+# `handle_game_state()` produce `runs` / `decisions` rows in the shared DB.
+_run_state = None
+_adapter = None
+
+
+def _on_subprocess_run_complete(info: dict) -> None:
+    """on_run_complete handler used by the subprocess-resident RunState.
+
+    Mirrors the old `watcher.build_run_complete_handler()` behaviour: log the
+    run boundary and flush pending DB writes so the overlay sees the final
+    outcome promptly.
+    """
+    import db as coach_db
+    run_id = info.get("run_id")
+    hero = info.get("hero") or "Unknown"
+    print(f"[Mono] Run {run_id} finished for {hero}.")
+    coach_db.flush()
+    print("[Mono] Run closed; pending writes flushed.")
+
+
+def _wire_run_state() -> None:
+    """Construct RunState + MonoEventAdapter and register with handle_game_state.
+
+    This is the wiring that used to live in `watcher.py` (deleted in #144).
+    Without it, snapshots are persisted to `api_game_states` but no `runs` or
+    `decisions` rows are ever created and the overlay stays on the idle card.
+    See issue #146.
+
+    Factored out of main() so tests can invoke the wiring directly.
+    """
+    global _run_state, _adapter
+    import db as coach_db
+    from run_state import RunState
+    from mono_event_adapter import MonoEventAdapter
+
+    coach_db.init_db()
+    coach_db.start_writer()
+    _run_state = RunState(
+        on_run_complete=_on_subprocess_run_complete,
+        event_source="mono",
+    )
+    _adapter = MonoEventAdapter(_run_state, event_source="mono")
+    register_event_adapter(_adapter)
+    print("[Mono] RunState + MonoEventAdapter wired (event_source=mono)")
 
 
 def start_db_writer():
@@ -1433,6 +1482,14 @@ def main():
     # This keeps on_message thin and avoids back-pressuring Frida's send().
     start_db_writer()
 
+    # Wire the in-process RunState + MonoEventAdapter so snapshots produced by
+    # handle_game_state() actually create `runs`/`decisions` rows. Without
+    # this the overlay sits on "Waiting for run to start..." forever (#146).
+    try:
+        _wire_run_state()
+    except Exception as _wire_exc:
+        print(f"[Mono] WARNING: RunState wiring failed - decisions will not be recorded ({_wire_exc})")
+
     try:
         import frida
     except ImportError:
@@ -1522,6 +1579,12 @@ def main():
         except Exception:
             pass
         stop_db_writer()
+        try:
+            import db as coach_db
+            coach_db.flush()
+            coach_db.close_shared_conn()
+        except Exception as _flush_exc:
+            print(f"[Mono] DB flush on shutdown failed: {_flush_exc}")
         if _log_file:
             _log_file.close()
 
