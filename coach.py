@@ -423,6 +423,10 @@ def main():
     should_launch_overlay = not args.no_overlay
     should_launch_mono = not args.no_mono
 
+    if not should_launch_mono:
+        print("[Coach] WARNING: --no-mono disables the Mono/Frida pipeline. "
+              "Decisions will NOT be recorded (no Player.log fallback as of #144).")
+
     # Install signal handlers for graceful shutdown
     _install_signal_handlers()
 
