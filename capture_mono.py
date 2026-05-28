@@ -71,6 +71,10 @@ _api_log_module = None
 # When set, handle_game_state() calls adapter.process_snapshot() after
 # persisting the snapshot so RunState receives a push notification.
 _mono_event_adapter = None
+# One-shot flag for the first-dispatch info line written to the session log.
+# Lets the next bug of #148's shape be diagnosable from logs/coach_*.log
+# without code changes.
+_adapter_first_dispatch_logged = False
 _CARD_LIST_KEYS = (
     "offered",
     "player_board",
@@ -686,9 +690,29 @@ def handle_game_state(gs):
     _seen_snapshot_keys.add(dedupe_key)
     _snapshot_count += 1
 
+    # Persistence + adapter dispatch before render filters.
+    # The render filters below were designed for console output and drop
+    # EncounterState (every shop tick) and any state that fingerprints to a
+    # previously-rendered signature. Pre-#147 those drops were harmless
+    # because decisions came from the log path; now the adapter is the sole
+    # decision source, so it MUST see every non-duplicate snapshot or no
+    # buy/sell/reroll events ever fire (#148). Persistence is also moved up
+    # so the api_game_states row is in place by the time the adapter triggers
+    # RunState._build_live_decision_context, which queries that table.
+    if _do_log or _do_db:
+        persist_snapshot(gs)
+    if _mono_event_adapter is not None:
+        global _adapter_first_dispatch_logged
+        if not _adapter_first_dispatch_logged:
+            _adapter_first_dispatch_logged = True
+            print("[Mono] First snapshot dispatched to MonoEventAdapter")
+        try:
+            _mono_event_adapter.process_snapshot(gs)
+        except Exception as _adapter_exc:
+            print(f"[Mono] MonoEventAdapter.process_snapshot raised: {_adapter_exc}")
+
+    # Render-only gates from here down.
     if not _should_render_snapshot(gs):
-        if _do_log or _do_db:
-            persist_snapshot(gs)
         return
 
     snap_id = gs.get("id", _snapshot_count)
@@ -710,8 +734,6 @@ def handle_game_state(gs):
 
     render_sig = _render_signature(gs)
     if render_sig in _rendered_snapshot_keys:
-        if _do_log or _do_db:
-            persist_snapshot(gs)
         return
     _rendered_snapshot_keys.add(render_sig)
 
@@ -757,17 +779,6 @@ def handle_game_state(gs):
             _last_snapshot_print_ms = now_ms
         else:
             _snapshot_prints_suppressed += 1
-
-    # Persist directly — we're already on the background worker thread.
-    if _do_log or _do_db:
-        persist_snapshot(gs)
-
-    # Push to the Mono event adapter if one is registered (wired by coach.py).
-    if _mono_event_adapter is not None:
-        try:
-            _mono_event_adapter.process_snapshot(gs)
-        except Exception as _adapter_exc:
-            print(f"[Mono] MonoEventAdapter.process_snapshot raised: {_adapter_exc}")
 
 
 def register_event_adapter(adapter) -> None:
