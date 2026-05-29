@@ -9,7 +9,7 @@ persists the snapshot (so api_game_state_id is already assigned).
 
 Synthetic session_id / account_id (--event-source mono only)
 -------------------------------------------------------------
-session_id   — stable UUID generated once per coach-process launch.
+session_id   — UUID generated per detected run boundary.
 account_id   — SHA-1 of hostname + data_dir, giving a stable per-machine id.
 These are only used internally for run-boundary detection and overlay headers.
 When --event-source=both the log-derived values arrive first and win (dedup).
@@ -28,6 +28,10 @@ import app_paths
 # ---------------------------------------------------------------------------
 
 _SYNTHETIC_SESSION_ID: str = str(uuid.uuid4())
+
+
+def _new_synthetic_session_id() -> str:
+    return str(uuid.uuid4())
 
 
 def _make_synthetic_account_id() -> str:
@@ -153,6 +157,7 @@ class MonoEventAdapter:
         """
         self._run_state = run_state
         self._event_source = event_source
+        self._session_id = _SYNTHETIC_SESSION_ID
 
         # Previous snapshot state — reset on NewRun
         self._prev_snap: Optional[dict] = None
@@ -441,7 +446,7 @@ class MonoEventAdapter:
             events.append({
                 "event": "session_id",
                 "ts": ts,
-                "session_id": _SYNTHETIC_SESSION_ID,
+                "session_id": self._session_id,
                 "source": "mono",
             })
 
@@ -487,6 +492,7 @@ class MonoEventAdapter:
 
     def _reset(self) -> None:
         """Reset all per-run state."""
+        self._session_id = _new_synthetic_session_id()
         self._prev_snap = None
         self._prev_state_name = ""
         self._prev_offered = frozenset()

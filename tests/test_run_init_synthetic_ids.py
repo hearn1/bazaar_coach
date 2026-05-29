@@ -68,8 +68,8 @@ def test_synthetic_ids_populated_on_mono_source(tmp_path, monkeypatch):
     assert state.hero == "Stelle"
 
 
-def test_synthetic_session_id_is_stable_per_process():
-    """_SYNTHETIC_SESSION_ID is a constant for the lifetime of the process."""
+def test_synthetic_session_id_constant_exists_for_first_bootstrap():
+    """_SYNTHETIC_SESSION_ID remains available as the initial bootstrap id."""
     from mono_event_adapter import _SYNTHETIC_SESSION_ID as sid1
     from mono_event_adapter import _SYNTHETIC_SESSION_ID as sid2
     assert sid1 == sid2
@@ -105,3 +105,37 @@ def test_run_init_from_run_init_complete_event(tmp_path, monkeypatch):
 
     assert state.run_id is not None, "run_id should be set after run_init_complete"
     assert state.hero == "Pygmalien"
+
+
+def test_new_run_boundary_gets_fresh_synthetic_session_id(tmp_path, monkeypatch):
+    """Multiple Mono runs in one capture process must create distinct DB rows."""
+    _point_db_at(tmp_path, monkeypatch)
+    db.init_db()
+    monkeypatch.setattr(run_state._scorer, "LiveScorer", _NullScorer)
+
+    state = RunState(event_source="mono")
+    adapter = MonoEventAdapter(state, event_source="mono")
+
+    adapter.process_snapshot(_make_snap("NewRun", hero="Karnok", ts="2026-01-01T00:00:00+00:00"))
+    adapter.process_snapshot(_make_snap("Encounter", hero="Karnok", ts="2026-01-01T00:00:01+00:00"))
+    first_run_id = state.run_id
+    first_session_id = state.session_id
+
+    adapter.process_snapshot(_make_snap("EndRunVictory", hero="Karnok", ts="2026-01-01T00:10:00+00:00"))
+    adapter.process_snapshot(_make_snap("NewRun", hero="Karnok", ts="2026-01-01T00:11:00+00:00"))
+    adapter.process_snapshot(_make_snap("Encounter", hero="Karnok", ts="2026-01-01T00:11:01+00:00"))
+
+    assert state.run_id is not None
+    assert state.run_id != first_run_id
+    assert state.session_id != first_session_id
+
+    conn = sqlite3.connect(db.DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT id, session_id FROM runs ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(rows) == 2
+    assert rows[0][1] != rows[1][1]
