@@ -57,6 +57,10 @@ def _reset_capture_mono_globals(monkeypatch):
     monkeypatch.setattr(capture_mono, "_snapshot_count", 0)
     monkeypatch.setattr(capture_mono, "_duplicate_snapshot_count", 0)
     monkeypatch.setattr(capture_mono, "_last_merged_snapshot", None)
+    monkeypatch.setattr(capture_mono, "_event_template_ids_by_instance", {})
+    monkeypatch.setattr(capture_mono, "_deferred_cards_by_snapshot_id", {})
+    monkeypatch.setattr(capture_mono, "_deferred_template_events_by_snapshot_id", {})
+    monkeypatch.setattr(capture_mono, "_deferred_attrs_by_snapshot_id", {})
     monkeypatch.setattr(capture_mono, "_do_log", False)
     monkeypatch.setattr(capture_mono, "_do_db", False)
     monkeypatch.setattr(capture_mono, "_adapter_first_dispatch_logged", False)
@@ -74,6 +78,7 @@ def _make_snap(
     hero: str = "Karnok",
     ts: str = "2026-01-01T00:00:00+00:00",
     snap_id: int | None = None,
+    card_template_events: list | None = None,
 ) -> dict:
     snap = {
         "timestamp": ts,
@@ -85,10 +90,23 @@ def _make_snap(
         "player_stash": [],
         "player_skills": skills or [],
         "opponent_board": [],
+        "card_template_events": card_template_events or [],
     }
     if snap_id is not None:
         snap["id"] = snap_id
     return snap
+
+
+def _template_events(*pairs):
+    return [
+        {
+            "event_type": "card_dealt",
+            "instance_id": instance_id,
+            "template_id": template_id,
+            "card_type": "Item",
+        }
+        for instance_id, template_id in pairs
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +244,62 @@ def test_shop_purchase_writes_decision_through_handle_game_state(tmp_path, monke
         assert dtype == "item", f"expected decision_type='item', got {dtype!r}"
         assert chosen_id == "itm_sword", f"expected chosen_id='itm_sword', got {chosen_id!r}"
         assert chosen_template == "T_SWORD", f"expected chosen_template='T_SWORD', got {chosen_template!r}"
+    finally:
+        capture_mono.register_event_adapter(None)
+
+
+def test_live_bare_encounter_event_templates_write_purchase_decision(tmp_path, monkeypatch):
+    """Packaged live payloads can carry bare states and event-only card identities."""
+    path = _point_db_at(tmp_path, monkeypatch, name="bare_event_template_test.db")
+    _reset_capture_mono_globals(monkeypatch)
+    monkeypatch.setattr(run_state._scorer, "LiveScorer", _NullScorer)
+    capture_mono._wire_run_state()
+
+    try:
+        capture_mono.handle_game_state(_make_snap("NewRun", snap_id=1))
+        capture_mono.handle_game_state(_make_snap(
+            "Encounter",
+            offered=[],
+            board=[],
+            gold=10,
+            snap_id=2,
+            ts="2026-01-01T00:00:01+00:00",
+            card_template_events=_template_events(
+                ("itm_sword", "T_SWORD"),
+                ("itm_shield", "T_SHIELD"),
+                ("itm_potion", "T_POTION"),
+            ),
+        ))
+
+        state = capture_mono._run_state
+        assert state.run_id is not None, "bare Encounter must bootstrap the active run"
+        run_id = state.run_id
+
+        capture_mono.handle_game_state(_make_snap(
+            "Encounter",
+            offered=[],
+            board=[],
+            gold=7,
+            snap_id=3,
+            ts="2026-01-01T00:00:02+00:00",
+            card_template_events=_template_events(
+                ("itm_shield", "T_SHIELD"),
+                ("itm_potion", "T_POTION"),
+            ),
+        ))
+        db.flush()
+
+        conn = sqlite3.connect(path)
+        try:
+            rows = conn.execute(
+                "SELECT decision_type, chosen_id, chosen_template "
+                "FROM decisions WHERE run_id = ?",
+                (run_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        assert rows == [("item", "itm_sword", "T_SWORD")]
     finally:
         capture_mono.register_event_adapter(None)
 

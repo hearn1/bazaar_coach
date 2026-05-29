@@ -448,7 +448,7 @@ class RunState:
         prev = self.current_state
         self.current_state = event["to_state"]
         ts = event.get("ts", "")
-        print(f"[RunState] State: {prev} → {self.current_state}")
+        print(f"[RunState] State: {prev} -> {self.current_state}")
 
         # ── Leaving EncounterState: finalize shop ────────────────────────────
         if prev == "EncounterState" and self._in_shop:

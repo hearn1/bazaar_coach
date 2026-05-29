@@ -56,8 +56,23 @@ def _ts_from_snapshot(snap: dict) -> str:
     return ts or ""
 
 
+_STATE_NAME_ALIASES = {
+    "Choice": "ChoiceState",
+    "Encounter": "EncounterState",
+    "Combat": "CombatState",
+    "PVPCombat": "PVPCombatState",
+    "Replay": "ReplayState",
+    "Loot": "LootState",
+    "LevelUp": "LevelUpState",
+    "Pedestal": "PedestalState",
+    "EndRunDefeat": "EndRunDefeatState",
+    "EndRunVictory": "EndRunVictoryState",
+}
+
+
 def _state_name(snap: dict) -> str:
-    return (snap.get("state") or {}).get("state", "") or ""
+    raw = (snap.get("state") or {}).get("state", "") or ""
+    return _STATE_NAME_ALIASES.get(raw, raw)
 
 
 def _hero_name(snap: dict) -> str:
@@ -276,6 +291,12 @@ class MonoEventAdapter:
                     "source": "mono",
                 })
 
+            inferred_purchase = self._detect_offer_purchase_without_board(
+                snap, ts, curr_offered, curr_board, moved_to_board
+            )
+            if inferred_purchase:
+                events.append(inferred_purchase)
+
         return events
 
     # ------------------------------------------------------------------
@@ -351,6 +372,51 @@ class MonoEventAdapter:
             "instance_id": instance_id,
             "template_id": template_id,
             "gold": int(gold_delta),
+            "source": "mono",
+        }
+
+    def _detect_offer_purchase_without_board(
+        self,
+        snap: dict,
+        ts: str,
+        curr_offered: frozenset,
+        curr_board: frozenset,
+        moved_to_board: frozenset,
+    ) -> Optional[dict]:
+        """Infer a purchase when live card ownership collections decode empty.
+
+        Some packaged live captures still include authoritative GameSim deal
+        events while dynamic card collections decode as empty. In that shape
+        a shop purchase appears as exactly one previous offer disappearing
+        while gold drops, with no matching board move to diff against.
+        """
+        if moved_to_board:
+            return None
+        if self._prev_snap is None or self._prev_state_name != "EncounterState":
+            return None
+        if _state_name(snap) != "EncounterState":
+            return None
+        if curr_board:
+            return None
+
+        removed_from_offers = self._prev_offered - curr_offered
+        if len(removed_from_offers) != 1:
+            return None
+
+        prev_gold = _gold(self._prev_snap)
+        curr_gold = _gold(snap)
+        if prev_gold is None or curr_gold is None or curr_gold >= prev_gold:
+            return None
+
+        instance_id = next(iter(removed_from_offers))
+        template_id = _template_for_instance(self._prev_snap, instance_id)
+        return {
+            "event": "card_purchased",
+            "ts": ts,
+            "instance_id": instance_id,
+            "template_id": template_id,
+            "section": "Player",
+            "target_socket": "",
             "source": "mono",
         }
 
