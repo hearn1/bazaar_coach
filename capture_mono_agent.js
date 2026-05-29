@@ -683,11 +683,22 @@ function readGameSimTemplateEventsFromList(eventsPtr) {
             let eventType = null;
             if (className.includes('GameSimEventCardDealt')) eventType = 'card_dealt';
             else if (className.includes('GameSimEventCardSpawned')) eventType = 'card_spawned';
+            // The game models every selection (shop buy, map/encounter pick, skill,
+            // loot) as CardPurchased on the chosen instance + CardDisposed on the
+            // rest. These are the authoritative decision signal in the Mono-only
+            // flow (Player.log used to provide it). They carry InstanceId only —
+            // TemplateId is null and is recovered downstream from the CardDealt of
+            // the same instance — so they must NOT be gated on templateId below.
+            else if (className.includes('GameSimEventCardPurchased')) eventType = 'card_purchased';
+            else if (className.includes('GameSimEventCardDisposed')) eventType = 'card_disposed';
             if (!eventType) continue;
 
             const instanceId = readDynamicStringField(eventPtr, ['InstanceId', '<InstanceId>k__BackingField']);
             const templateId = readDynamicStringField(eventPtr, ['TemplateId', '<TemplateId>k__BackingField']);
-            if (!instanceId || !templateId) continue;
+            if (!instanceId) continue;
+            // card_dealt/card_spawned carry a real template and downstream offer
+            // synthesis relies on it; require it. purchased/disposed may be null.
+            if ((eventType === 'card_dealt' || eventType === 'card_spawned') && !templateId) continue;
 
             const typeInt = readDynamicI32Field(eventPtr, ['Type', '<Type>k__BackingField']);
             const cardType = typeInt !== null ? (E_CARD_TYPE[typeInt] || typeInt) : inferCardTypeFromInstanceId(instanceId);

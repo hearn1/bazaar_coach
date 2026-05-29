@@ -33,6 +33,9 @@ from pathlib import Path
 
 import app_paths
 import content_manifest
+from stdio_safety import configure_stdio_backslashreplace
+
+configure_stdio_backslashreplace()
 import db
 import settings
 from version import APP_VERSION
@@ -59,6 +62,10 @@ class TeeStream:
             write = getattr(stream, "write", None)
             if write:
                 write(data)
+                if "\n" in data:
+                    flush = getattr(stream, "flush", None)
+                    if flush:
+                        flush()
         return len(data)
 
     def flush(self):
@@ -76,7 +83,7 @@ def start_session_logging():
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOGS_DIR / f"coach_{ts}.log"
-    log_handle = open(log_path, "w", encoding="utf-8", newline="")
+    log_handle = open(log_path, "w", encoding="utf-8", newline="", buffering=1)
 
     original_stdout = sys.stdout
     original_stderr = sys.stderr
@@ -99,6 +106,7 @@ def launch_capture_mono(process_name: str = "TheBazaar.exe") -> subprocess.Popen
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONUNBUFFERED", "1")
     if app_paths.is_packaged():
         cli_exe = Path(sys.executable).parent / "BazaarCoachCLI.exe"
         cmd = [

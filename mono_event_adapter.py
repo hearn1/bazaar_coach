@@ -22,6 +22,9 @@ import uuid
 from typing import Optional
 
 import app_paths
+from stdio_safety import configure_stdio_backslashreplace
+
+configure_stdio_backslashreplace()
 
 # ---------------------------------------------------------------------------
 # Stable synthetic ids (one per coach-process launch)
@@ -161,11 +164,21 @@ class MonoEventAdapter:
 
         # Previous snapshot state — reset on NewRun
         self._prev_snap: Optional[dict] = None
+        self._prev_snap_id = None
         self._prev_state_name: str = ""
         self._prev_offered: frozenset = frozenset()
         self._prev_board: frozenset = frozenset()
         self._prev_rerolls: Optional[int] = None
         self._prev_shop_window_id: Optional[int] = None
+
+        # instance_id -> template_id, learned from GameSim card_dealt/card_spawned
+        # events so a later card_purchased (which carries no template) can be
+        # resolved. Reset per run.
+        self._instance_templates: dict = {}
+        # instance_ids already emitted as card_purchased this run — dedup so the
+        # same GameSim CardPurchased event (it can recur across the snapshot and
+        # its late deferred-template enrichment) is only turned into one decision.
+        self._emitted_card_purchases: set = set()
 
         # One-shot flags per run
         self._emitted_run_start: bool = False
@@ -213,7 +226,42 @@ class MonoEventAdapter:
 
         # Advance prev state
         self._prev_snap = snap
+        self._prev_snap_id = snap.get("id")
         self._prev_state_name = curr_state
+        self._prev_offered = _offered_instance_ids(snap)
+        self._prev_board = _board_instance_ids(snap)
+        self._prev_rerolls = _rerolls_remaining(snap)
+        self._prev_shop_window_id = _shop_window_id_from_snap(snap)
+
+    def note_enriched_snapshot(self, snap: dict) -> None:
+        """Refresh prev-snapshot state when late deferred data enriches it.
+
+        ``handle_game_state`` dispatches a snapshot to the adapter as soon as
+        it is merged, but the JS agent decodes heavy card/offer collections off
+        the game thread and delivers them in later ``deferred_*`` messages. When
+        that data lands for the snapshot we *just* processed, the adapter's
+        ``_prev_*`` view is stale (often an empty offered set), so the next
+        snapshot's diff can't see the offered→board purchase. Re-point the prev
+        state at the enriched snapshot — without re-persisting or re-running the
+        full differ — so the *next* real snapshot diffs correctly.
+
+        It DOES emit authoritative ``card_purchased`` events the enrichment just
+        delivered: GameSim ``CardPurchased`` events usually arrive in a late
+        ``deferred_template_events`` message (after the snapshot was already
+        dispatched to the differ), so without this they'd never be recorded.
+        This runs on the capture worker thread — the same thread as normal
+        snapshot processing — so the resulting ``insert_decision`` is the
+        ordinary (non-reentrant) write path, not the reverted redispatch machinery.
+        """
+        if self._event_source == "log":
+            return
+        snap_id = snap.get("id")
+        if snap_id is None or snap_id != self._prev_snap_id:
+            return
+        ts = _ts_from_snapshot(snap)
+        for evt in self._gamesim_selection_events(snap, ts):
+            self._emit(evt)
+        self._prev_snap = snap
         self._prev_offered = _offered_instance_ids(snap)
         self._prev_board = _board_instance_ids(snap)
         self._prev_rerolls = _rerolls_remaining(snap)
@@ -302,6 +350,92 @@ class MonoEventAdapter:
             if inferred_purchase:
                 events.append(inferred_purchase)
 
+        # ── Authoritative purchases from GameSim CardPurchased events ───
+        # The owned-card board never populates during shops in the Mono-only
+        # flow (GameStateSync is too rare; GameSim deltas carry no board), so
+        # the offered→board diff above can't see a buy. The game instead emits
+        # a discrete GameSimEventCardPurchased on the chosen instance — the
+        # authoritative buy/selection signal (the Player.log replacement).
+        events.extend(self._gamesim_selection_events(snap, ts))
+
+        return events
+
+    def _gamesim_selection_events(self, snap: dict, ts: str) -> list[dict]:
+        """Build card_purchased decisions from a snapshot's inline template events."""
+        return self._purchase_events_from_template_events(
+            snap.get("card_template_events") or [], ts, snap=snap,
+        )
+
+    def ingest_card_events(self, template_events: list, ts: str) -> None:
+        """Emit card_purchased decisions from a deferred template-events payload.
+
+        GameSim ``CardPurchased`` events almost always arrive in a late
+        ``deferred_template_events`` message, after the parent snapshot was
+        dispatched to the differ — and in a state burst the snapshot-id match in
+        ``note_enriched_snapshot`` may already have moved on. Feeding the raw
+        payload straight here makes purchase capture independent of that race.
+        Dedup by instance means re-processing the same event is a no-op.
+        """
+        if self._event_source == "log":
+            return
+        for evt in self._purchase_events_from_template_events(template_events or [], ts):
+            self._emit(evt)
+
+    def _purchase_events_from_template_events(
+        self, template_events: list, ts: str, snap: Optional[dict] = None,
+    ) -> list[dict]:
+        """Turn GameSim CardPurchased events into card_purchased decisions.
+
+        ``card_dealt``/``card_spawned`` give us instance→template (the buy event
+        itself has no template). A ``card_purchased`` on the chosen instance is
+        the authoritative pick — a shop item, a map/encounter node, etc. Skills
+        are left to the dedicated ``skill_selected`` path. Dedup by instance so
+        the same event (seen inline and again via deferred enrichment) yields one
+        decision.
+        """
+        if not template_events:
+            return []
+
+        for e in template_events:
+            if not isinstance(e, dict):
+                continue
+            et = e.get("event_type")
+            iid = e.get("instance_id")
+            tmpl = e.get("template_id")
+            if et in ("card_dealt", "card_spawned") and iid and tmpl:
+                self._instance_templates[iid] = tmpl
+
+        events: list[dict] = []
+        for e in template_events:
+            if not isinstance(e, dict) or e.get("event_type") != "card_purchased":
+                continue
+            iid = e.get("instance_id")
+            if not iid or iid in self._emitted_card_purchases:
+                continue
+            prefix = iid.split("_", 1)[0] if "_" in iid else ""
+            if prefix == "skl":
+                # Skill picks are recorded via the skill_selected path.
+                continue
+            self._emitted_card_purchases.add(iid)
+            template_id = (
+                self._instance_templates.get(iid)
+                or e.get("template_id")
+                or (_template_for_instance(snap, iid) if snap else "")
+                or None
+            )
+            # enc/ste/com/ped are map/encounter node picks (Opponent side, the
+            # ChoiceState branch in RunState._on_card_purchased); everything else
+            # (notably itm_) is a player-side acquisition.
+            section = "Opponent" if prefix in ("enc", "ste", "com", "ped") else "Player"
+            events.append({
+                "event": "card_purchased",
+                "ts": ts,
+                "instance_id": iid,
+                "template_id": template_id,
+                "section": section,
+                "target_socket": None,
+                "source": "mono",
+            })
         return events
 
     # ------------------------------------------------------------------
@@ -477,6 +611,7 @@ class MonoEventAdapter:
         self._emit({"event": "run_start", "ts": ts, "source": "mono"})
         # Advance prev state
         self._prev_snap = snap
+        self._prev_snap_id = snap.get("id")
         self._prev_state_name = _state_name(snap)
 
     def _handle_terminal_state(self, snap: dict, ts: str, curr_state: str) -> None:
@@ -494,11 +629,14 @@ class MonoEventAdapter:
         """Reset all per-run state."""
         self._session_id = _new_synthetic_session_id()
         self._prev_snap = None
+        self._prev_snap_id = None
         self._prev_state_name = ""
         self._prev_offered = frozenset()
         self._prev_board = frozenset()
         self._prev_rerolls = None
         self._prev_shop_window_id = None
+        self._instance_templates = {}
+        self._emitted_card_purchases = set()
         self._emitted_run_start = False
         self._emitted_hero = False
         self._emitted_session_id = False

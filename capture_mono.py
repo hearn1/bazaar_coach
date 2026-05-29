@@ -45,6 +45,10 @@ import threading
 import time
 from pathlib import Path
 
+from stdio_safety import configure_stdio_backslashreplace
+
+configure_stdio_backslashreplace()
+
 CAPTURES_DIR = Path(__file__).parent / "captures"
 
 # Frida Mono agent - uses native Mono C API via NativeFunction
@@ -378,6 +382,21 @@ def handle_capture_call(payload):
         print(f"[Capture] {method} call #{count} -> {status}")
 
 
+def _notify_adapter_enriched(snap):
+    """Re-point the live adapter's prev state at a late-enriched snapshot.
+
+    Cheap, in-memory only: it refreshes the adapter's prev offered/board view so
+    the next snapshot diffs correctly. It does NOT emit events, insert decisions,
+    or re-persist — that keeps the DB writer thread free of reentrant work.
+    """
+    if _mono_event_adapter is None:
+        return
+    try:
+        _mono_event_adapter.note_enriched_snapshot(snap)
+    except Exception as exc:
+        print(f"[Mono] note_enriched_snapshot raised: {exc}")
+
+
 def handle_deferred_cards(payload):
     """F1: Merge deferred card data (from setImmediate) into the matching snapshot.
 
@@ -399,8 +418,12 @@ def handle_deferred_cards(payload):
     if len(_deferred_cards_by_snapshot_id) > 32:
         oldest = min(_deferred_cards_by_snapshot_id.keys())
         del _deferred_cards_by_snapshot_id[oldest]
+
+    lm_id = _last_merged_snapshot.get("id") if _last_merged_snapshot else None
+    counts = {k: len(cards.get(k, [])) for k in _CARD_LIST_KEYS}
+
     # If the matching snapshot is already in _last_merged_snapshot, merge now
-    if _last_merged_snapshot and _last_merged_snapshot.get("id") == snapshot_id:
+    if _last_merged_snapshot and lm_id == snapshot_id:
         for key in _CARD_LIST_KEYS:
             if cards.get(key):
                 _last_merged_snapshot[key] = [dict(c) for c in cards[key]]
@@ -408,9 +431,53 @@ def handle_deferred_cards(payload):
         # Persist updated snapshot with card data
         if _do_log or _do_db:
             persist_snapshot(_last_merged_snapshot)
-        if _VERBOSE_HOOKS:
-            total = sum(len(cards.get(k, [])) for k in _CARD_LIST_KEYS)
-            print(f"[Mono] Deferred cards merged into snapshot #{snapshot_id}: {total} cards")
+        _notify_adapter_enriched(_last_merged_snapshot)
+        status = "merged"
+    elif _last_merged_snapshot and lm_id is not None and snapshot_id < lm_id:
+        # Late arrival: a heavy GameStateSync/RunInitialized full card read
+        # (offered/board/stash/skills only come from these — the fast-gamesim
+        # delta path never reads cards) decoded off the game thread via
+        # setImmediate, but GameSim deltas advanced _last_merged_snapshot past
+        # this snapshot_id before the decoded cards arrived. The old exact-id
+        # match dropped them, so the player's board/stash/skills never entered
+        # _last_merged_snapshot and could never carry forward — board_count
+        # stayed 0 for the whole run on any mid-run attach. Backfill the
+        # *persistent* (owned) card sets only where currently empty: these are
+        # sticky state and the only messages in between (GameSim) never carry
+        # them, so filling a gap can't overwrite newer truth. Offered is
+        # transient (belongs to a specific shop window) and is deliberately
+        # NOT backfilled here.
+        # In-memory only: do NOT re-persist here. _last_merged_snapshot's own
+        # DB row was already flushed by the time this late delta arrives, and
+        # the snapshot writer always INSERTs (coalescing only by a still-pending
+        # queue key), so re-persisting would duplicate the row. Updating the
+        # carry-forward state is enough — the next snapshot inserts cleanly with
+        # the board via _merge_partial_snapshot's _PERSISTENT_CARD_KEYS carry.
+        backfilled = []
+        for key in _PERSISTENT_CARD_KEYS:
+            if cards.get(key) and not _last_merged_snapshot.get(key):
+                _last_merged_snapshot[key] = [dict(c) for c in cards[key]]
+                backfilled.append(key)
+        if backfilled:
+            _apply_event_template_recovery(_last_merged_snapshot)
+            _notify_adapter_enriched(_last_merged_snapshot)
+            status = "backfilled:" + ",".join(backfilled)
+        else:
+            status = "late-noop"
+    else:
+        status = "stored"
+
+    # Diagnostic for the board-capture path (gated; opt in with --verbose-hooks).
+    # player_board>0 with status=stored/late-noop means the agent decoded the
+    # board and the Python merge dropped it; player_board=0 everywhere points at
+    # the agent-side read (readCardHashSet/bucketCard).
+    if _VERBOSE_HOOKS:
+        print(
+            f"[Mono] deferred_cards snap={snapshot_id} last_merged={lm_id} "
+            f"offered={counts['offered']} board={counts['player_board']} "
+            f"stash={counts['player_stash']} skills={counts['player_skills']} "
+            f"opp={counts['opponent_board']} -> {status}"
+        )
 
 
 def handle_deferred_template_events(payload):
@@ -426,11 +493,30 @@ def handle_deferred_template_events(payload):
         oldest = min(_deferred_template_events_by_snapshot_id.keys())
         del _deferred_template_events_by_snapshot_id[oldest]
 
+    # Authoritative selection signal: GameSim CardPurchased events almost always
+    # land here (late, after the parent snapshot was dispatched to the differ),
+    # so feed them straight to the adapter — independent of the snapshot-id match
+    # below, which a state burst can race past. Dedup by instance makes this safe
+    # even if the same events are also picked up via the snapshot path.
+    if _mono_event_adapter is not None:
+        ts = _last_merged_snapshot.get("timestamp") if _last_merged_snapshot else None
+        if isinstance(ts, (int, float)):
+            ts = datetime.datetime.fromtimestamp(
+                ts / 1000.0, tz=datetime.timezone.utc
+            ).isoformat()
+        elif not isinstance(ts, str) or not ts:
+            ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            _mono_event_adapter.ingest_card_events(template_events, ts)
+        except Exception as exc:
+            print(f"[Mono] ingest_card_events raised: {exc}")
+
     if _last_merged_snapshot and _last_merged_snapshot.get("id") == snapshot_id:
         _last_merged_snapshot["card_template_events"] = list(template_events)
         _apply_event_template_recovery(_last_merged_snapshot)
         if _do_log or _do_db:
             persist_snapshot(_last_merged_snapshot)
+        _notify_adapter_enriched(_last_merged_snapshot)
         if _VERBOSE_HOOKS:
             print(
                 f"[Mono] Deferred template events merged into snapshot #{snapshot_id}: "
@@ -467,6 +553,7 @@ def handle_deferred_player_attrs(payload):
         _deferred_attrs_late_arrival_count += 1
         if _do_log or _do_db:
             persist_snapshot(_last_merged_snapshot)
+        _notify_adapter_enriched(_last_merged_snapshot)
         if _VERBOSE_HOOKS:
             print(
                 f"[Mono] Deferred player attrs merged (late) into snapshot #{snapshot_id}: "

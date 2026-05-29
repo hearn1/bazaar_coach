@@ -113,6 +113,17 @@ def _writer_loop():
         func, args, kwargs, result_future = item
         try:
             result = func(*args, **kwargs)
+            # Commit immediately rather than batching until the next flush().
+            # In the Mono-only flow RunState runs inside the capture subprocess
+            # alongside a SECOND writer connection (_mono_db_conn for snapshots),
+            # both writing the same WAL DB. A decision write left uncommitted here
+            # holds the single SQLite write lock, starving the high-frequency
+            # snapshot writes ("Snapshot DB busy" → capture wedges). Per-write
+            # commits keep the lock held only for the duration of one statement;
+            # these rows (runs/decisions/combat) are low-frequency so the extra
+            # commits are cheap.
+            if _shared_conn is not None:
+                _shared_conn.commit()
             if result_future is not None:
                 result_future.put(result)
         except Exception as e:
