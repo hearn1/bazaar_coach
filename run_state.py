@@ -27,12 +27,14 @@ from dataclasses import dataclass, field
 import db
 import card_cache
 import scorer as _scorer
+from stdio_safety import configure_stdio_backslashreplace
 from board_state import BoardState
 from name_resolver import NameResolver
 from shop_session import ShopSession
 from web.offer_snapshot import find_offer_snapshot, resolve_rejected_templates
 from typing import Callable, Optional
 
+configure_stdio_backslashreplace()
 
 # ---------------------------------------------------------------------------
 # Dedup ring buffer — drops duplicate events from both pipelines
