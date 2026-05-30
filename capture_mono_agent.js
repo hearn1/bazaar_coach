@@ -127,18 +127,26 @@ const mono_class_get_parent = monoOptionalExport('mono_class_get_parent','pointe
 const domain = mono_get_root_domain();
 if (!domain.isNull()) { mono_thread_attach(domain); send({type:'info',msg:'Attached to Mono domain'}); }
 
-const assemblies = [];
-const asmCb = new NativeCallback(function(a,u){assemblies.push(a);},'void',['pointer','pointer']);
-mono_assembly_foreach(asmCb, ptr(0));
-send({type:'info',msg:'Found '+assemblies.length+' assemblies'});
-
+// imageMap is rebuilt rather than reassigned (it's const and closed over by
+// many helpers). rebuildImageMap re-enumerates the live assembly set so an
+// early attach (issue #158) can pick up gameplay assemblies that JIT-load
+// after script load.
 const imageMap = {};
-for (const asm of assemblies) {
-    const img = mono_assembly_get_image(asm);
-    if (img.isNull()) continue;
-    const np = mono_image_get_name(img);
-    if (!np.isNull()) imageMap[np.readUtf8String()] = img;
+function rebuildImageMap() {
+    const assemblies = [];
+    const asmCb = new NativeCallback(function(a,u){assemblies.push(a);},'void',['pointer','pointer']);
+    mono_assembly_foreach(asmCb, ptr(0));
+    for (const k of Object.keys(imageMap)) delete imageMap[k];
+    for (const asm of assemblies) {
+        const img = mono_assembly_get_image(asm);
+        if (img.isNull()) continue;
+        const np = mono_image_get_name(img);
+        if (!np.isNull()) imageMap[np.readUtf8String()] = img;
+    }
+    return assemblies.length;
 }
+const __asmCount = rebuildImageMap();
+send({type:'info',msg:'Found '+__asmCount+' assemblies'});
 send({type:'info',msg:'Images: '+Object.keys(imageMap).join(', ')});
 
 function findClass(ns, cls) {
@@ -765,6 +773,11 @@ const searchTargets = [
 ];
 
 const foundClasses = {}, fieldCache = {}, fieldInfoCache = {}, fieldNullLogCounts = {}, dynamicFieldInfoCache = {}, graphSummaryLogCounts = {}, collectionLayoutLogCounts = {}, cardBucketLogCounts = {}, cardCollectionLogCounts = {};
+// Populates foundClasses + short-key fieldCache/fieldInfoCache that the DTO
+// readers depend on. Re-runnable so an early-attach retry (issue #158) can
+// resolve these once the gameplay assemblies load. Idempotent — overwrites
+// cache entries with identical values.
+function resolveSearchTargets() {
 for (const t of searchTargets) {
     const klass = findClass(t.ns, t.cls);
     if (klass) {
@@ -792,6 +805,8 @@ for (const t of searchTargets) {
             send({type:'debug',msg:t.cls+' fields: '+fields.map(f=>f.name+'@'+f.offset).join(', ')});
     }
 }
+}
+resolveSearchTargets();
 
 // DTO readers
 function readRunSnapshot(p){const o=fieldCache['RunSnapshotDTO'];if(!o||!p||p.isNull())return{};const r={};try{if('GameModeId'in o)r.game_mode_id=readGuid(p,o['GameModeId']);if('Day'in o)r.day=p.add(o['Day']).readU32();if('Hour'in o)r.hour=p.add(o['Hour']).readU32();if('Victories'in o)r.victories=p.add(o['Victories']).readU32();if('Defeats'in o)r.defeats=p.add(o['Defeats']).readU32();if('HasVisitedFates'in o)r.visited_fates=p.add(o['HasVisitedFates']).readU8()!==0;if('DataVersion'in o)r.data_version=readMonoString(p.add(o['DataVersion']).readPointer());}catch(e){send({type:'debug',msg:'readRun:'+e});}return r;}
@@ -2186,9 +2201,88 @@ function prewarmFieldInfoCache(){
 }
 
 // Execute
-const __captureMonoInitialized=(function(){
-    // QW1: pre-warm before hooks fire to eliminate cold-walk spikes
+// One resolution pass: prewarm DTO field caches, then install hooks. Returns the
+// number of capture methods hooked (0 = nothing resolved this pass). Emits info/
+// debug only — the caller owns the terminal 'ready'/'error' so a re-run during
+// the early-attach retry (issue #158) does not spam those. hookMethod is
+// idempotent (guarded by hookedCode keyed on compiled address), so re-running
+// after assemblies load never installs a duplicate Interceptor.
+function attemptResolution(){
+    // QW1: pre-warm before hooks fire to eliminate cold-walk spikes. Safe to
+    // re-run: cached entries are skipped, and after the gameplay assemblies load
+    // this is what actually populates the DTO caches that the first (empty) pass
+    // could not. _fieldInfoPrewarmed stays true throughout — no hooks fire on the
+    // game thread until this pass succeeds, so the hot-path cold-walk skip is correct.
     prewarmFieldInfoCache();
     _fieldInfoPrewarmed=true;
-    const gh=hookGlobalSearchCandidates();if(ENABLE_BROAD_HOOKS&&foundClasses['GameStateHandler']){const handlerKlass=foundClasses['GameStateHandler'].klass;const h=hookAllCandidates(handlerKlass);const dh=hookDataUpdater(handlerKlass);const total=h+dh+gh;if(total>0)send({type:'ready',msg:'Mono hooks active. '+total+' capture method(s) hooked.'});else send({type:'info',msg:'Probes attached - play to identify methods.'});}else if(gh>0){send({type:'ready',msg:'Mono hooks active. '+gh+' capture method(s) hooked.'});}else if(foundClasses['GameStateHandler']){send({type:'info',msg:'Searching broader namespaces...'});const nsG=['TheBazaar','TheBazaar.Runtime','TheBazaar.Game','TheBazaar.Infra','TheBazaar.Network','TheBazaar.State','Bazaar','Game','','Runtime'];let found=false;for(const[an,img]of Object.entries(imageMap)){if(!['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient'].includes(an))continue;for(const ns of nsG){const k=mono_class_from_name(img,Memory.allocUtf8String(ns),Memory.allocUtf8String('GameStateHandler'));if(!k.isNull()){send({type:'info',msg:'FOUND at ns="'+ns+'" in '+an});foundClasses['GameStateHandler']={klass:k,ns};if(ENABLE_BROAD_HOOKS){const h=hookAllCandidates(k);const dh=hookDataUpdater(k);const gh2=hookGlobalSearchCandidates();if(h+dh+gh2>0)send({type:'ready',msg:'Mono hooks active. '+(h+dh+gh2)+' capture method(s) hooked.'});}found=true;break;}}if(found)break;}if(!found)send({type:'error',msg:'GameStateHandler not found. Assemblies: '+Object.keys(imageMap).join(', ')});}else{send({type:'error',msg:'No preferred capture hooks resolved. Assemblies: '+Object.keys(imageMap).join(', ')});}return true;})();
+    const gh=hookGlobalSearchCandidates();
+    if(ENABLE_BROAD_HOOKS&&foundClasses['GameStateHandler']){
+        const handlerKlass=foundClasses['GameStateHandler'].klass;
+        const h=hookAllCandidates(handlerKlass);
+        const dh=hookDataUpdater(handlerKlass);
+        const total=h+dh+gh;
+        if(total===0)send({type:'info',msg:'Probes attached - play to identify methods.'});
+        return total;
+    }
+    if(gh>0)return gh;
+    if(foundClasses['GameStateHandler']){
+        send({type:'info',msg:'Searching broader namespaces...'});
+        const nsG=['TheBazaar','TheBazaar.Runtime','TheBazaar.Game','TheBazaar.Infra','TheBazaar.Network','TheBazaar.State','Bazaar','Game','','Runtime'];
+        for(const[an,img]of Object.entries(imageMap)){
+            if(!['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient'].includes(an))continue;
+            for(const ns of nsG){
+                const k=mono_class_from_name(img,Memory.allocUtf8String(ns),Memory.allocUtf8String('GameStateHandler'));
+                if(!k.isNull()){
+                    send({type:'info',msg:'FOUND at ns="'+ns+'" in '+an});
+                    foundClasses['GameStateHandler']={klass:k,ns};
+                    if(ENABLE_BROAD_HOOKS){const h=hookAllCandidates(k);const dh=hookDataUpdater(k);const gh2=hookGlobalSearchCandidates();return h+dh+gh2;}
+                    return 0;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+const __captureMonoInitialized=(function(){
+    const total=attemptResolution();
+    if(total>0){
+        send({type:'ready',msg:'Mono hooks active. '+total+' capture method(s) hooked.'});
+        return true;
+    }
+    // Early attach (issue #158): the gameplay assemblies may not be JIT-loaded
+    // yet (attach can land ~8s after process spawn, before Unity JITs the managed
+    // assemblies). Re-enumerate assemblies and re-resolve on a bounded interval
+    // until a target assembly appears and hooks attach, or we time out. On
+    // timeout keep the original error so `coach.py doctor` still reports it.
+    send({type:'info',msg:'No capture hooks resolved at attach; retrying as game assemblies load. Present: '+Object.keys(imageMap).join(', ')});
+    const RETRY_INTERVAL_MS=1500;
+    // Generous window: a cold Unity start (shader compile, main menu) can take
+    // well over a minute, and the user may launch the game some time after
+    // opening Coach. The poll is cheap until a target assembly appears (just a
+    // re-enumeration), so a long timeout costs almost nothing.
+    const RETRY_TIMEOUT_MS=300000;
+    const TARGET_ASSEMBLIES=['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient','BazaarGameShared'];
+    let elapsed=0;
+    const timer=setInterval(function(){
+        elapsed+=RETRY_INTERVAL_MS;
+        try{
+            rebuildImageMap();
+            if(TARGET_ASSEMBLIES.some(n=>imageMap[n])){
+                resolveSearchTargets();
+                const t=attemptResolution();
+                if(t>0){
+                    clearInterval(timer);
+                    send({type:'ready',msg:'Mono hooks active. '+t+' capture method(s) hooked.'});
+                    return;
+                }
+            }
+        }catch(e){send({type:'debug',msg:'hook-retry: '+e});}
+        if(elapsed>=RETRY_TIMEOUT_MS){
+            clearInterval(timer);
+            send({type:'error',msg:'No preferred capture hooks resolved. Assemblies: '+Object.keys(imageMap).join(', ')});
+        }
+    },RETRY_INTERVAL_MS);
+    return true;
+})();
 if(false&&foundClasses['GameStateHandler']){const h=hookAllCandidates(foundClasses['GameStateHandler'].klass);if(h>0)send({type:'ready',msg:'Mono hooks active. '+h+' method(s) hooked.'});else send({type:'info',msg:'Probes attached - play to identify methods.'});}else if(false){send({type:'info',msg:'Searching broader namespaces...'});const nsG=['TheBazaar','TheBazaar.Runtime','TheBazaar.Game','TheBazaar.Infra','TheBazaar.Network','TheBazaar.State','Bazaar','Game','','Runtime'];let found=false;for(const[an,img]of Object.entries(imageMap)){if(!['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient'].includes(an))continue;for(const ns of nsG){const k=mono_class_from_name(img,Memory.allocUtf8String(ns),Memory.allocUtf8String('GameStateHandler'));if(!k.isNull()){send({type:'info',msg:'FOUND at ns="'+ns+'" in '+an});foundClasses['GameStateHandler']={klass:k,ns};hookAllCandidates(k);found=true;break;}}if(found)break;}if(!found)send({type:'error',msg:'GameStateHandler not found. Assemblies: '+Object.keys(imageMap).join(', ')});}
