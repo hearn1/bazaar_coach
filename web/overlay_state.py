@@ -12,6 +12,7 @@ and jsonifies the result.
 
 from typing import Optional
 
+import capture_status
 from board_state import BoardState
 from web.build_helpers import (
     load_builds,
@@ -411,7 +412,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
         "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
     if not run:
-        return {"error": "No runs found"}
+        return {"error": "No runs found", "capture_status": capture_status.get_status()}
 
     run = dict(run)
     build_data, _relevant_items = load_builds(run.get("hero"))
@@ -530,6 +531,7 @@ def build_overlay_state(conn, *, resolve_fn=None, safe_json_fn=None, lookup_imag
         "score_summary": score_summary,
         "phase_notes": get_phase_notes(current_day, build_data=build_data),
         "run_tier": run_tier,
+        "capture_status": capture_status.get_status(),
     }
 
 
