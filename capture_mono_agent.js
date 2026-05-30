@@ -2257,7 +2257,11 @@ const __captureMonoInitialized=(function(){
     // timeout keep the original error so `coach.py doctor` still reports it.
     send({type:'info',msg:'No capture hooks resolved at attach; retrying as game assemblies load. Present: '+Object.keys(imageMap).join(', ')});
     const RETRY_INTERVAL_MS=1500;
-    const RETRY_TIMEOUT_MS=60000;
+    // Generous window: a cold Unity start (shader compile, main menu) can take
+    // well over a minute, and the user may launch the game some time after
+    // opening Coach. The poll is cheap until a target assembly appears (just a
+    // re-enumeration), so a long timeout costs almost nothing.
+    const RETRY_TIMEOUT_MS=300000;
     const TARGET_ASSEMBLIES=['TheBazaarRuntime','Assembly-CSharp','BazaarGameClient','BazaarGameShared'];
     let elapsed=0;
     const timer=setInterval(function(){
