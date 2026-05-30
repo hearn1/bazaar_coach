@@ -213,6 +213,12 @@
       letter-spacing: 0.1em;
     }
 
+    /* Capture-health dot pulse for non-healthy states (#159). */
+    @keyframes cap-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
     .header-stat {
       display: flex;
       align-items: center;
@@ -2187,7 +2193,23 @@
       if (state.hour != null)     parts.push(`<span class="header-stat"><span class="header-stat-label">Hr</span><span class="header-stat-value">${escapeHtml(String(state.hour))}</span></span>`);
       if (state.pvp_wins != null) parts.push(`<span class="header-stat"><span class="header-stat-label">Wins</span><span class="header-stat-value">${escapeHtml(String(state.pvp_wins))}</span></span>`);
       if (!parts.length) return "";
-      return `<div class="header-stats">${parts.join('<span class="header-stat-sep">·</span>')}</div>`;
+      return `<div class="header-stats">${renderCaptureDot(state)}${parts.join('<span class="header-stat-sep">·</span>')}</div>`;
+    }
+
+    // Capture-health dot — quiet solid green when healthy; amber/red for
+    // unresolved/not-running. Inline-styled (no CSS block needed); sits at the
+    // left of the header-stats cluster, leaving the subtitle run-counter,
+    // outcome pill, and corner-pinned close button untouched (#159).
+    const CAP_DOT_COLORS = { ok: '#22c55e', info: '#9ca3af', warn: '#f59e0b', error: '#ef4444', off: '#3f3f46' };
+    function renderCaptureDot(state) {
+      const cap = (state && state.capture_status) || null;
+      if (!cap) return '';
+      const color = CAP_DOT_COLORS[cap.level] || CAP_DOT_COLORS.info;
+      let tip = cap.label || 'Capture status';
+      if (cap.detail) tip += ' — ' + cap.detail;
+      const dim = cap.level === 'off' ? 'opacity:0.5;' : '';
+      const pulse = (cap.level === 'warn' || cap.level === 'error') ? 'animation:cap-pulse 1.6s ease-in-out infinite;' : '';
+      return `<span class="cap-dot" title="${escapeHtml(tip)}" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px;vertical-align:middle;background:${color};${dim}${pulse}"></span>`;
     }
 
     function renderHeader(state) {

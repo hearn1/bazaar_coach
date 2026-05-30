@@ -36,6 +36,7 @@ import content_manifest
 from stdio_safety import configure_stdio_backslashreplace
 
 configure_stdio_backslashreplace()
+import capture_status
 import db
 import settings
 from version import APP_VERSION
@@ -96,9 +97,12 @@ def start_session_logging():
 def _pump_process_output(proc: subprocess.Popen):
     try:
         for line in proc.stdout:
-            print(f"[Mono] {line.rstrip()}")
+            text = line.rstrip()
+            capture_status.observe_line(text)
+            print(f"[Mono] {text}")
     finally:
         code = proc.wait()
+        capture_status.note_exit(code)
         print(f"[Mono] capture_mono exited with code {code}")
 
 
@@ -142,6 +146,8 @@ def launch_capture_mono(process_name: str = "TheBazaar.exe") -> subprocess.Popen
     if os.name == "nt":
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     proc = subprocess.Popen(cmd, **popen_kwargs)
+    capture_status.reset("starting")
+    capture_status.attach_process(proc)
     threading.Thread(
         target=_pump_process_output,
         args=(proc,),
@@ -432,6 +438,7 @@ def main():
     should_launch_mono = not args.no_mono
 
     if not should_launch_mono:
+        capture_status.set_disabled()
         print("[Coach] WARNING: --no-mono disables the Mono/Frida pipeline. "
               "Decisions will NOT be recorded (no Player.log fallback as of #144).")
 
