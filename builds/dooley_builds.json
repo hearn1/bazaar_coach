@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "hero": "Dooley",
-  "season": "13",
-  "last_updated": "2026-05-03",
+  "season": 14,
+  "last_updated": "2026-05-30",
   "notes": "Dooley is a positioning-first engine hero. His strongest runs usually branch from an early Core shell into one of several real late-game payoffs: Companion Core Friends, Bill Dozer friend engines, Race Carl engines, Terry-Dactyl or Mech-Moles Launcher boards, C.O.R.A. utility-control boards, Weaponized Core tempo, Kinetic Cannon pivot, or Hydraulic Press tag burst. Fast Small items, Charge, Haste, and clean board layout matter more on Dooley than on almost any other hero, so keep your board lean and be willing to reposition between fights.",
   "item_tier_list": {
     "description": "Tier list synthesized from the Season 13 Mobalytics Dooley overview plus Kripp guides for Companion Core, Launcher Core, Kinetic Cannon, Weaponized Core, and Hydraulic Press, then validated against recent Bazaar Builds tag archives. Items not listed score as unranked.",

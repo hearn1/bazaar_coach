@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "hero": "Mak",
-  "season": "12",
-  "last_updated": "2026-04-26",
+  "season": 14,
+  "last_updated": "2026-05-30",
   "notes": "Mak is a flexible tempo and economy hero. Two major win conditions: TEMPO (win fast on strong early board) or EXODIA (Bottled Explosion/Goop Flail scaling). Both share the same skill pool. Stabilize with strongest opener, use catalysts and reagents throughout, pivot into first high-ceiling line your board supports.",
   "item_tier_list": {
     "description": "Full Mak tier list from the Flex Mak Guide (Season 12). Items not listed here score as unranked (suboptimal in late). Covers all main build lines: Potion, Weapons, Poppy, Self-Poison, Satchel/Regen, Torch, Relic, Sands/Femur, Calc/Retort.",

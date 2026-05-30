@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "hero": "Jules",
-  "season": 13,
-  "last_updated": "2026-05-18",
+  "season": 14,
+  "last_updated": "2026-05-30",
   "notes": "POC SEED SKELETON - empty initial catalog used to prove the automated builds pipeline can generate an initial Jules catalog from source evidence. Not curator-authored content.",
   "item_tier_list": {
     "description": "Placeholder tier list for the Jules PoC seed; populated by curator review.",
