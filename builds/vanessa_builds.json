@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "hero": "Vanessa",
-  "season": "13",
-  "last_updated": "2026-05-02",
+  "season": 14,
+  "last_updated": "2026-05-30",
   "notes": "Vanessa is a tempo-and-engine hero whose best lines branch from early Weapons, Aquatics, Friends, or a rare build-around. Core win conditions covered here are Tortuga Friends, Slumbering Primordial combo, Gunslinger burst, Aquatic engines, and Langxian snowball. Early Star Chart, Ambergris, Fishing Rod, and Shovel are broadly useful, while Sharkclaws, Switchblade, Honing Steel, Catfish, Beach Ball, Pearl, and Sharkray provide the bridges that keep the run alive until the late carry is clear.",
   "item_tier_list": {
     "description": "Tier list synthesized from Season 13 Mobalytics Vanessa guides: Tortuga, Slumbering Primordial, Gunslinger Aggro, Aquatic, and Langxian. Items not listed score as unranked.",
