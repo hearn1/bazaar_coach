@@ -29,6 +29,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=commandline dialog
 UninstallDisplayIcon={app}\BazaarCoach.exe
+SetupIconFile=..\..\assets\icon.ico
 SetupLogging=yes
 
 [Languages]
