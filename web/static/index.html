@@ -449,7 +449,23 @@ body.panel-open #run-view { display: none; }
     <button class="history-toggle" id="builds-btn" onclick="toggleBuildPanel()" style="margin-left:auto">Build Data</button>
     <button class="history-toggle" id="my-builds-btn" onclick="toggleMyBuildsPanel()">My Builds</button>
     <button class="history-toggle" id="history-btn" onclick="toggleHistory()">Run History</button>
+    <button class="history-toggle" id="report-issue-btn" onclick="openReportIssueModal()">Report Issue</button>
   </header>
+
+  <!-- Report Issue Modal -->
+  <div id="report-issue-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card,#1a1a2e);border:1px solid var(--border,#333);border-radius:8px;padding:24px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.6);">
+      <h3 style="margin:0 0 16px;font-family:var(--font-display,'Syne'),sans-serif;font-size:1rem;letter-spacing:.08em;text-transform:uppercase;color:var(--text-primary,#e8e8e8);">Report an Issue</h3>
+      <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--text-muted,#888);">Title (optional)</label>
+      <input id="report-issue-title" type="text" placeholder="Brief summary…" style="width:100%;box-sizing:border-box;background:var(--bg-input,#111);border:1px solid var(--border,#333);border-radius:4px;padding:8px 10px;color:var(--text-primary,#e8e8e8);font-size:.85rem;margin-bottom:14px;">
+      <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--text-muted,#888);">Description (optional)</label>
+      <textarea id="report-issue-desc" rows="4" placeholder="What happened? Steps to reproduce?" style="width:100%;box-sizing:border-box;background:var(--bg-input,#111);border:1px solid var(--border,#333);border-radius:4px;padding:8px 10px;color:var(--text-primary,#e8e8e8);font-size:.85rem;resize:vertical;margin-bottom:18px;"></textarea>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="history-toggle" onclick="closeReportIssueModal()">Cancel</button>
+        <button class="history-toggle" id="report-issue-submit" onclick="submitReportIssue()">Open GitHub &amp; Attach Log</button>
+      </div>
+    </div>
+  </div>
   <div class="toast" id="toast"></div>
   <div class="update-notice" id="update-notice"></div>
   <div class="update-notice" id="build-refresh-notice"></div>
@@ -1815,6 +1831,54 @@ function showToast(msg, ms=2200) {
   el.classList.add('visible');
   if (_toastTimer) clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.remove('visible'), ms);
+}
+
+// ── Report Issue ─────────────────────────────────────────────────
+function openReportIssueModal() {
+  const overlay = document.getElementById('report-issue-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  const titleEl = document.getElementById('report-issue-title');
+  if (titleEl) titleEl.value = '';
+  const descEl = document.getElementById('report-issue-desc');
+  if (descEl) descEl.value = '';
+}
+function closeReportIssueModal() {
+  const overlay = document.getElementById('report-issue-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+async function submitReportIssue() {
+  const titleEl = document.getElementById('report-issue-title');
+  const descEl = document.getElementById('report-issue-desc');
+  const title = titleEl ? titleEl.value : '';
+  const description = descEl ? descEl.value : '';
+
+  closeReportIssueModal();
+
+  let issueUrl = null;
+  let logPath = null;
+  try {
+    const data = await postJson('/api/report-issue/info', { title, description });
+    issueUrl = data.issue_url;
+    logPath = data.log_path;
+  } catch (e) {
+    showToast('Could not build issue URL: ' + e.message, 3500);
+    return;
+  }
+
+  window.open(issueUrl, '_blank');
+
+  try {
+    await postJson('/api/report-issue/open-logs', {});
+  } catch (_) {
+    // non-fatal — browser tab is already open
+  }
+
+  if (logPath) {
+    showToast('GitHub issue opened. Drag the highlighted log file in and submit.', 5000);
+  } else {
+    showToast('GitHub issue opened. No log found — describe the problem manually.', 5000);
+  }
 }
 
 // ── Init ─────────────────────────────────────────────────────────

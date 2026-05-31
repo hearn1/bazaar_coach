@@ -59,6 +59,7 @@ from web.build_helpers import (
 from web.overlay_state import build_overlay_state, _get_run_record, get_combat_opponent_board
 from web.review_builder import format_decision_row
 from web.card_images import IMAGE_DIR as CARD_IMAGE_DIR, lookup_image_url
+from web.report_issue import issue_info as _report_issue_info
 
 DEFAULT_PORT = 5555
 DB_PATH: Optional[Path] = None
@@ -1010,6 +1011,42 @@ def api_updates_relaunch():
     result = update_checker.relaunch_installed_coach(str(target_version))
     status_code = 200 if result.get("ok") else 400
     return jsonify(result), status_code
+
+
+# ── Routes — report issue ─────────────────────────────────────────────────────
+
+@app.route("/api/report-issue/info", methods=["POST"])
+def api_report_issue_info():
+    """Return prefilled GitHub issue URL + log paths. Does not open anything."""
+    payload = request.get_json(silent=True) or {}
+    title = payload.get("title", "")
+    description = payload.get("description", "")
+    try:
+        return jsonify(_report_issue_info(title, description))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/report-issue/open-logs", methods=["POST"])
+def api_report_issue_open_logs():
+    """Reveal the latest coach log in Explorer (Windows select). No-op on other OS."""
+    from web.report_issue import latest_log_file
+    log = latest_log_file()
+    if log and log.exists():
+        try:
+            update_checker._reveal_in_file_manager(log)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": True, "log_path": str(log)})
+    logs_dir = app_paths.logs_dir()
+    # Fall back to opening the logs folder itself if no log file yet
+    try:
+        import subprocess
+        if os.name == "nt":
+            subprocess.Popen(["explorer", str(logs_dir)])
+    except Exception:
+        pass
+    return jsonify({"ok": True, "log_path": None})
 
 
 # ── Routes — control ──────────────────────────────────────────────────────────
