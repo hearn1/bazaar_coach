@@ -1,6 +1,6 @@
 # Bazaar Coach
 
-Licensed under the MIT License — see [LICENSE](LICENSE). Third-party component licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Licensed under the MIT License — see [LICENSE](LICENSE). Third-party component licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Code-signing policy: [CODE_SIGNING.md](CODE_SIGNING.md). Privacy and data collection: [PRIVACY.md](PRIVACY.md).
 
 Bazaar Coach is a Windows coaching plugin for *The Bazaar*. It captures every run decision into a local SQLite database, scores them against hero build catalogs, and shows live coaching through an in-game overlay.
 
