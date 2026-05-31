@@ -126,14 +126,29 @@ def test_installer_uninstall_uses_deltree_not_uninstalldelete():
     assert "[UninstallDelete]" not in iss
 
 
-def test_installer_has_versioned_shortcuts_and_doctor():
+def test_installer_has_version_free_shortcuts_and_doctor():
     root = app_paths.repo_dir()
     iss = (root / "packaging" / "installer" / "BazaarCoach.iss").read_text()
 
-    assert "Bazaar Coach ({#AppVersion})" in iss
-    assert "Bazaar Coach Doctor ({#AppVersion})" in iss
+    # Display names are version-free; the install dir stays versioned instead.
+    assert 'Name: "{group}\\Bazaar Coach"' in iss
+    assert 'Name: "{group}\\Bazaar Coach Doctor"' in iss
+    assert "({#AppVersion})" not in iss  # no version string in any shortcut name
+    assert "{#AppVersion}" in iss.split("[Icons]")[0]  # still versioned in [Setup]
     assert "doctor" in iss
     assert "BazaarCoach.exe" in iss
+
+
+def test_installer_display_name_and_icon():
+    root = app_paths.repo_dir()
+    iss = (root / "packaging" / "installer" / "BazaarCoach.iss").read_text()
+
+    # Add/Remove Programs shows a version-free name; install path stays versioned.
+    assert "AppVerName={#AppName}" in iss
+    assert "DefaultDirName={autopf}\\Bazaar Coach\\{#AppVersion}" in iss
+    # App icon wired into setup and shortcuts.
+    assert "SetupIconFile=..\\..\\assets\\icon.ico" in iss
+    assert 'IconFilename: "{app}\\BazaarCoach.exe"' in iss
 
 
 def test_build_portable_selects_python_flexibly():

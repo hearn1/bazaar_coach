@@ -13,6 +13,9 @@
 AppId={{E5A3F7C2-1D94-4B8E-AF61-3C07D5E82A40}
 AppName={#AppName}
 AppVersion={#AppVersion}
+; Keep the Add/Remove Programs display name version-free; the version still
+; shows in the separate "Version" column via AppVersion.
+AppVerName={#AppName}
 AppPublisher=Bazaar Coach
 AppPublisherURL=https://github.com/hearn1/bazaar_coach
 AppSupportURL=https://github.com/hearn1/bazaar_coach
@@ -42,12 +45,13 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-; Versioned shortcuts for side-by-side installs. A stable "Bazaar Coach" Start Menu
-; shortcut targeting the newest build is refreshed by the app after updates.
-Name: "{group}\Bazaar Coach ({#AppVersion})"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"
-Name: "{group}\Bazaar Coach Doctor ({#AppVersion})"; Filename: "{cmd}"; Parameters: "/K ""{app}\BazaarCoach.exe"" doctor"; WorkingDir: "{app}"
-Name: "{group}\Uninstall Bazaar Coach ({#AppVersion})"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Bazaar Coach ({#AppVersion})"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+; Version-free display names. The install directory stays versioned
+; (DefaultDirName) so builds don't clobber each other on disk; a new install
+; just refreshes these shortcuts to point at the newest build.
+Name: "{group}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; IconFilename: "{app}\BazaarCoach.exe"; IconIndex: 0
+Name: "{group}\Bazaar Coach Doctor"; Filename: "{cmd}"; Parameters: "/K ""{app}\BazaarCoach.exe"" doctor"; WorkingDir: "{app}"; IconFilename: "{app}\BazaarCoach.exe"; IconIndex: 0
+Name: "{group}\Uninstall Bazaar Coach"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Bazaar Coach"; Filename: "{app}\BazaarCoach.exe"; WorkingDir: "{app}"; IconFilename: "{app}\BazaarCoach.exe"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\BazaarCoach.exe"; Description: "Launch Bazaar Coach"; Flags: postinstall nowait skipifsilent
