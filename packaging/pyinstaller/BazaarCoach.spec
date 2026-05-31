@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH).parents[1]
 version_file = Path(SPECPATH) / "version_info.txt"
+ICON = str(ROOT / "assets" / "icon.ico")
 
 datas = [
     (str(ROOT / "builds" / "dooley_builds.json"), "builds"),
@@ -83,6 +84,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
     version=str(version_file) if version_file.exists() else None,
 )
 
@@ -105,6 +107,7 @@ exe_cli = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
     version=str(version_file) if version_file.exists() else None,
 )
 
