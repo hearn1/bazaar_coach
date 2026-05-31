@@ -68,9 +68,24 @@ Flow:
 - `gh` CLI logged in with `repo` scope (`gh auth status`).
 - Clean working tree on `main` before running `cut_release.ps1`.
 
-## Not addressed here
+## CI release build
 
-- CI release automation (`.github/workflows/release.yml`) — release cuts are local-only, matching the project's Windows-only runtime (Frida).
-- Code signing — see `packaging/installer/README.md` for the SmartScreen/AV expectations on unsigned builds.
+`.github/workflows/release-build.yml` automates the build on `windows-latest`.
+
+**Triggers:**
+- `push` of a `v*` tag — full build + attaches both artifacts to the existing GitHub Release.
+- `workflow_dispatch` — full build, artifacts only (no release upload).
+
+**Flow:** checkout → Python 3.12 → `pip install -r requirements.txt -r packaging/pyinstaller/requirements-build.txt` → pytest → `build_portable.ps1` (calls `gen_version_info.py` to embed Windows version metadata, then PyInstaller) → `smoke_test_portable.py` → portable zip → `choco install innosetup` → `build_installer.ps1 -AppVersion <v>` → `upload-artifact` (portable + installer) → on tag, `gh release upload <tag> --clobber` onto the release created by `cut_release.ps1`.
+
+**Note on `-PythonExe`:** the workflow does NOT pass `-PythonExe` to `build_portable.ps1`, so it falls back to the `python` on `PATH` supplied by `actions/setup-python`. The `venv312\` local path check will be absent on the runner, which is the correct fallback.
+
+**Known risk:** `frida`, `pywebview`, and `watchdog` are unpinned in `requirements.txt`. If a new release breaks the pip install on `windows-latest`, pin the affected package at the known-good version. Do not pin preemptively.
+
+**Code signing:** a commented SignPath slot-in is present in the workflow between the installer build and artifact upload steps (see issue #154).
+
+## Code signing
+
+See `packaging/installer/README.md` for the SmartScreen/AV expectations on unsigned builds.
 
 Product / packaging bugs that the orchestrator does **not** fix (they're tracked in GitHub Issues) ride through these scripts unchanged.

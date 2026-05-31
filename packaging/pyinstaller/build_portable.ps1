@@ -25,6 +25,13 @@ try {
 
     Write-Host "Using Python: $ResolvedPythonExe"
 
+    # Generate Windows file-version metadata before PyInstaller reads the spec
+    $GenVersionScript = Join-Path $PSScriptRoot "gen_version_info.py"
+    & $ResolvedPythonExe $GenVersionScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "gen_version_info.py failed with exit code $LASTEXITCODE"
+    }
+
     $args = @($SpecPath, "--noconfirm")
     if (-not $NoClean) {
         $args += "--clean"

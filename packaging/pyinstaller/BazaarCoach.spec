@@ -8,6 +8,7 @@ Build from the repository root:
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parents[1]
+version_file = Path(SPECPATH) / "version_info.txt"
 
 datas = [
     (str(ROOT / "builds" / "dooley_builds.json"), "builds"),
@@ -82,6 +83,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version=str(version_file) if version_file.exists() else None,
 )
 
 # Console-mode binary for support commands (doctor, refresh-builds,
@@ -103,6 +105,7 @@ exe_cli = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version=str(version_file) if version_file.exists() else None,
 )
 
 coll = COLLECT(
