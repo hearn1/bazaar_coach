@@ -1,0 +1,131 @@
+name: Release Build
+
+# Builds portable zip + installer on Windows.
+#
+# Triggers:
+#   - push of a v* tag  →  full build + attach artifacts to the existing GitHub Release
+#   - workflow_dispatch →  full build (artifacts only, no release upload)
+#
+# NOTE: unpinned frida/pywebview/watchdog in requirements.txt will resolve to
+# their latest versions on windows-latest. If pip install fails on frida, the
+# step will fail with a clear error — do not silently pin here. Track at #154
+# if a version constraint is needed.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Windows build
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r packaging/pyinstaller/requirements-build.txt
+
+      - name: Extract version
+        id: version
+        shell: pwsh
+        run: |
+          $text = Get-Content -Raw version.py
+          if ($text -match 'APP_VERSION\s*=\s*"([^"]+)"') {
+            $v = $Matches[1]
+          } else {
+            throw "Could not read APP_VERSION from version.py"
+          }
+          Write-Host "Version: $v"
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build portable
+        shell: pwsh
+        run: |
+          # build_portable.ps1 calls gen_version_info.py then PyInstaller.
+          # Do NOT pass -PythonExe — let it fall back to setup-python's python.
+          .\packaging\pyinstaller\build_portable.ps1
+
+      - name: Smoke test portable
+        run: python packaging/pyinstaller/smoke_test_portable.py
+
+      - name: Create portable zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path dist/BazaarCoach/* -DestinationPath "dist/BazaarCoach-Portable-$version.zip"
+          Write-Host "Created dist/BazaarCoach-Portable-$version.zip"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          .\packaging\installer\build_installer.ps1 -AppVersion $version
+
+      # --- SignPath slot-in (issue #154) ---
+      # When code-signing is configured, add a step here to submit the
+      # installer to SignPath for signing before uploading artifacts.
+      # Example (commented out until #154 is resolved):
+      #
+      # - name: Sign installer (SignPath)
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+      #     project-slug: bazaar-coach
+      #     signing-policy-slug: release-signing
+      #     artifact-configuration-slug: installer
+      #     github-artifact-name: installer
+      # --- end SignPath slot-in ---
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-${{ steps.version.outputs.version }}
+          path: dist/BazaarCoach-Portable-${{ steps.version.outputs.version }}.zip
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ steps.version.outputs.version }}
+          path: dist/installer/BazaarCoachSetup-${{ steps.version.outputs.version }}.exe
+
+      - name: Attach to GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = "${{ steps.version.outputs.version }}"
+          $portable = "dist/BazaarCoach-Portable-$version.zip"
+          $installer = "dist/installer/BazaarCoachSetup-$version.exe"
+
+          # The release is created by cut_release.ps1 before the tag is pushed.
+          # Upload (clobber) both assets onto the existing release.
+          # Tolerate absence: if the release doesn't exist yet, warn and skip.
+          $releaseCheck = gh release view $tag 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "GitHub Release for $tag not found — skipping asset upload."
+            Write-Warning "Create the release manually or run cut_release.ps1 first."
+          } else {
+            gh release upload $tag $portable $installer --clobber
+          }
