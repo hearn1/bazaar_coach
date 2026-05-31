@@ -96,6 +96,20 @@ jobs:
       #     github-artifact-name: installer
       # --- end SignPath slot-in ---
 
+      - name: Compute SHA-256 checksums
+        shell: pwsh
+        run: |
+          # NOTE: keep this AFTER any signing step so hashes match the signed
+          # binaries users download (SignPath signing is deferred — #154).
+          $version = "${{ steps.version.outputs.version }}"
+          $portable  = "dist/BazaarCoach-Portable-$version.zip"
+          $installer = "dist/installer/BazaarCoachSetup-$version.exe"
+          $sumsPath  = "dist/SHA256SUMS-$version.txt"
+          Get-FileHash -Algorithm SHA256 $portable, $installer |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content -Path $sumsPath -Encoding ascii
+          Get-Content $sumsPath | Write-Host
+
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
@@ -108,6 +122,12 @@ jobs:
           name: installer-${{ steps.version.outputs.version }}
           path: dist/installer/BazaarCoachSetup-${{ steps.version.outputs.version }}.exe
 
+      - name: Upload checksums artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums-${{ steps.version.outputs.version }}
+          path: dist/SHA256SUMS-${{ steps.version.outputs.version }}.txt
+
       - name: Attach to GitHub Release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -118,6 +138,7 @@ jobs:
           $version = "${{ steps.version.outputs.version }}"
           $portable = "dist/BazaarCoach-Portable-$version.zip"
           $installer = "dist/installer/BazaarCoachSetup-$version.exe"
+          $sums = "dist/SHA256SUMS-$version.txt"
 
           # The release is created by cut_release.ps1 before the tag is pushed.
           # Upload (clobber) both assets onto the existing release.
@@ -127,5 +148,5 @@ jobs:
             Write-Warning "GitHub Release for $tag not found — skipping asset upload."
             Write-Warning "Create the release manually or run cut_release.ps1 first."
           } else {
-            gh release upload $tag $portable $installer --clobber
+            gh release upload $tag $portable $installer $sums --clobber
           }

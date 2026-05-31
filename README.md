@@ -13,6 +13,16 @@ Hero catalogs ship for Karnok, Mak, Dooley, Vanessa, Pygmalien, Jules, and Stell
 3. Run the installer and accept the prompts. No admin rights are required for a per-user install; Windows may show a SmartScreen "Windows protected your PC" warning on first launch — click **More info** → **Run anyway**. See [packaging/installer/README.md](packaging/installer/README.md) for why an unsigned alpha build trips SmartScreen and antivirus.
 4. After install, look for a Start Menu folder named **Bazaar Coach** with shortcuts for the main app and the Doctor / support commands.
 
+## Verifying your download
+
+Each release attaches a `SHA256SUMS-<version>.txt` listing the hashes of the installer
+and portable zip. Verify your download before running it:
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\BazaarCoachSetup-<version>.exe
+# compare against SHA256SUMS-<version>.txt on the release page
+```
+
 ## How to use it
 
 1. Launch **Bazaar Coach** from the Start Menu.
