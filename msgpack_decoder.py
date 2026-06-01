@@ -26,7 +26,7 @@ except ImportError:
     E_RUN_STATE = {0:"Choice",1:"Combat",2:"Encounter",3:"EndRunDefeat",
                    4:"EndRunVictory",5:"LevelUp",6:"Loot",7:"NewRun",
                    8:"Pedestal",9:"PVPCombat",10:"Shutdown"}
-    E_HERO = {0:"Common",1:"Pygmalien",2:"Vanessa",3:"Dooley",4:"Jules",5:"Stelle",6:"Mak",7:"Karnok"}
+    E_HERO = {0:"Common",1:"Pygmalien",2:"Vanessa",3:"Stelle",4:"Jules",5:"Dooley",6:"Mak",7:"Karnok"}
     E_PLAYER_ATTRIBUTE = {0:"Burn",1:"CritChance",2:"DamageCrit",3:"Experience",
                           4:"Gold",5:"Income",6:"Joy",8:"JoyCrit",9:"Prestige",
                           10:"Health",11:"HealthMax",12:"HealthRegen",13:"HealAmount",

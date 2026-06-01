@@ -335,15 +335,18 @@ E_RUN_STATE = {
 
 # BazaarGameShared.Domain.Core.Types.EHero
 # Used in: PlayerSnapshotDTO[Key(0)], CardSnapshotDTO[Key(4)]
+# Empirically confirmed against live Mono captures: Pygmalien=1, Vanessa=2,
+# Jules=4, Karnok=7 (player-tested in #167); Dooley=5 and Stelle=3 (Dooley was
+# being mislabeled as Stelle — issue #167 — because 3/5 were originally swapped).
 E_HERO = {
     0: "Common",
     1: "Pygmalien",
     2: "Vanessa",
-    3: "Dooley",
+    3: "Stelle",
     4: "Jules",
-    5: "Stelle",
+    5: "Dooley",
     6: "Mak",
-    7: "Karnok",   # confirmed from live Mono capture while playing Karnok
+    7: "Karnok",
 }
 
 # BazaarGameShared.Domain.Core.Types.EPlayerAttributeType
