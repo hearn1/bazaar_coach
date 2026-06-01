@@ -143,6 +143,9 @@ def test_report_issue_open_logs_no_log_still_ok(tmp_path, monkeypatch):
     monkeypatch.setattr(ri.app_paths, "logs_dir", lambda: tmp_path)
     import update_checker
     monkeypatch.setattr(update_checker, "_reveal_in_file_manager", lambda p: None)
+    # No coach log exists, so the route falls back to opening the logs folder.
+    # Neutralize it too, otherwise the tmp_path opens in Explorer every test run.
+    monkeypatch.setattr(update_checker, "_open_in_file_manager", lambda p: None)
     client = server.app.test_client()
     resp = client.post("/api/report-issue/open-logs", json={})
     assert resp.status_code == 200
