@@ -204,10 +204,11 @@ def test_refresh_builds_summary_statuses():
 
 def test_build_refresh_route_reports_manual_result(monkeypatch):
     import web.server as server
+    import asset_refresh
 
-    with server._build_refresh_lock:
-        server._build_refresh_state["running"] = False
-        server._build_refresh_state["last_result"] = None
+    with asset_refresh._lock:
+        asset_refresh._state["builds"]["running"] = False
+        asset_refresh._state["builds"]["last_result"] = None
 
     monkeypatch.setattr(
         server.refresh_builds,
