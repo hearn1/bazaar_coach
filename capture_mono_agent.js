@@ -1,7 +1,7 @@
 'use strict';
 
 const E_RUN_STATE = {0:"Choice",1:"Combat",2:"Encounter",3:"EndRunDefeat",4:"EndRunVictory",5:"LevelUp",6:"Loot",7:"NewRun",8:"Pedestal",9:"PVPCombat",10:"Shutdown"};
-const E_HERO = {0:"Common",1:"Pygmalien",2:"Vanessa",3:"Dooley",4:"Jules",5:"Stelle",6:"Mak",7:"Karnok"};
+const E_HERO = {0:"Common",1:"Pygmalien",2:"Vanessa",3:"Stelle",4:"Jules",5:"Dooley",6:"Mak",7:"Karnok"};
 const E_PLAYER_ATTRIBUTE = {0:"Burn",1:"CritChance",2:"DamageCrit",3:"Experience",4:"Gold",5:"Income",6:"Joy",8:"JoyCrit",9:"Prestige",10:"Health",11:"HealthMax",12:"HealthRegen",13:"HealAmount",14:"HealCrit",15:"Level",16:"Poison",17:"RerollCostModifier",19:"Shield",21:"ShieldCrit",22:"FlatDamageReduction",23:"PercentDamageReduction",24:"Custom_0",25:"Custom_1",26:"Custom_2",27:"Custom_3",28:"Custom_4",29:"Custom_5",30:"Custom_6",31:"Custom_7",32:"Custom_8",33:"Custom_9",34:"Rage",35:"RageMax",36:"Enraged",37:"EnragedDuration",38:"EnragedDurationMax"};
 const E_CARD_TYPE = {0:"Item",1:"Skill",2:"Companion",3:"SocketEffect",4:"Encounter"};
 const E_CARD_SIZE = {0:"Small",1:"Medium",2:"Large"};
