@@ -39,6 +39,7 @@ ROOT_DIR = app_paths.bundled_root()
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import asset_refresh
 import card_cache
 import db
 import first_run
@@ -69,11 +70,6 @@ _shutdown_callback: Optional[Callable] = None
 # (run_id: int, ts_iso: str) -> bool, where True means the request actually
 # closed the run (False means it was already closed or did not match).
 _force_end_callback: Optional[Callable[[int, str], bool]] = None
-_build_refresh_lock = threading.Lock()
-_build_refresh_state = {
-    "running": False,
-    "last_result": None,
-}
 
 app = Flask(
     __name__,
@@ -277,64 +273,12 @@ def _build_catalog_notes() -> list[dict]:
 
 
 def _build_refresh_status_payload() -> dict:
-    with _build_refresh_lock:
-        running = bool(_build_refresh_state["running"])
-        last_result = _build_refresh_state["last_result"]
+    # Builds refresh state now lives in the transport-agnostic asset_refresh
+    # helper; the dashboard payload keeps its legacy shape (+ catalog notes).
     return {
-        "running": running,
-        "last_result": last_result,
+        **asset_refresh.status("builds"),
         "catalogs": _build_catalog_notes(),
     }
-
-
-def _finish_build_refresh(trigger: str, payload: dict) -> None:
-    payload = dict(payload)
-    payload["trigger"] = trigger
-    payload["checked_at"] = _utc_now_iso()
-    with _build_refresh_lock:
-        _build_refresh_state["running"] = False
-        _build_refresh_state["last_result"] = payload
-
-
-def _run_build_refresh(trigger: str) -> None:
-    try:
-        results = refresh_builds.refresh_builds()
-        payload = refresh_builds.summarize_results(results)
-    except Exception as exc:
-        payload = {
-            "ok": False,
-            "status": "failed",
-            "updated": 0,
-            "unchanged": 0,
-            "skipped": len(scorer.CATALOG_FILENAMES),
-            "results": [],
-            "error": str(exc),
-        }
-    _finish_build_refresh(trigger, payload)
-
-
-def _start_build_refresh(trigger: str) -> bool:
-    with _build_refresh_lock:
-        if _build_refresh_state["running"]:
-            return False
-        _build_refresh_state["running"] = True
-        _build_refresh_state["last_result"] = {
-            "ok": None,
-            "status": "checking",
-            "updated": 0,
-            "unchanged": 0,
-            "skipped": 0,
-            "results": [],
-            "trigger": trigger,
-            "checked_at": _utc_now_iso(),
-        }
-    threading.Thread(
-        target=_run_build_refresh,
-        args=(trigger,),
-        daemon=True,
-        name=f"build-refresh-{trigger}",
-    ).start()
-    return True
 
 
 @app.route("/api/builds/refresh/status")
@@ -344,8 +288,45 @@ def api_builds_refresh_status():
 
 @app.route("/api/builds/refresh", methods=["POST"])
 def api_builds_refresh():
-    _start_build_refresh("manual")
+    asset_refresh.start_refresh("builds", "manual")
     return jsonify(_build_refresh_status_payload()), 202
+
+
+# ── Routes — generic asset refresh (issue #175) ───────────────────────────────
+
+def _asset_status_payload(kind: Optional[str]) -> dict:
+    """Status payload for the generic asset endpoint. The builds entry carries
+    the catalog notes the dashboard relies on, for parity."""
+    if kind == "builds":
+        payload = _build_refresh_status_payload()
+    elif kind is not None:
+        payload = asset_refresh.status(kind)
+    else:
+        payload = asset_refresh.status()
+        builds_entry = payload["kinds"].get("builds")
+        if builds_entry is not None:
+            builds_entry["catalogs"] = _build_catalog_notes()
+    return payload
+
+
+@app.route("/api/assets/refresh/status")
+def api_assets_refresh_status():
+    kind = request.args.get("kind")
+    if kind is not None and kind not in asset_refresh.KINDS:
+        return jsonify({"error": f"Unknown asset kind: {kind}"}), 400
+    return jsonify(_asset_status_payload(kind))
+
+
+@app.route("/api/assets/refresh", methods=["POST"])
+def api_assets_refresh():
+    kind = request.args.get("kind") or (request.get_json(silent=True) or {}).get("kind")
+    if kind not in asset_refresh.KINDS:
+        return jsonify({"error": f"Unknown asset kind: {kind}"}), 400
+    started = asset_refresh.start_refresh(kind, "manual")
+    payload = _asset_status_payload(kind)
+    if not started:
+        return jsonify({**payload, "error": f"{kind} refresh already running"}), 409
+    return jsonify(payload), 202
 
 
 # ── Routes — user build overrides ─────────────────────────────────────────────
@@ -1167,7 +1148,7 @@ def start_web_server(port=DEFAULT_PORT, db_path=None, background=True, auto_refr
     if db_path:
         DB_PATH = Path(db_path)
     if auto_refresh_builds:
-        _start_build_refresh("startup")
+        asset_refresh.start_refresh("builds", "startup")
     if background:
         t = threading.Thread(target=lambda: _run_production_server(port), daemon=True, name="web-server")
         t.start()

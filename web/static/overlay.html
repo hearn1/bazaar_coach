@@ -183,6 +183,51 @@
       color: #ffe1e1;
     }
 
+    .header-action.active {
+      border-color: rgba(230, 169, 32, 0.45);
+      color: #fff0c7;
+      background: rgba(230, 169, 32, 0.12);
+    }
+
+    .header-action:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    .asset-panel .asset-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .asset-panel .asset-row:first-of-type {
+      border-top: none;
+    }
+
+    .asset-row-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .asset-row-label {
+      font: 600 12px/1.3 var(--body, inherit);
+      color: #f4f5f7;
+    }
+
+    .asset-status {
+      margin-top: 3px;
+      font: 500 11px/1.4 var(--mono);
+      color: var(--muted);
+    }
+
+    .asset-status.status-checking { color: #e6a920; }
+    .asset-status.status-updated { color: #34d399; }
+    .asset-status.status-unchanged { color: #9ca3af; }
+    .asset-status.status-skipped { color: #f59e0b; }
+    .asset-status.status-failed { color: #f87171; }
+
     .header-quit {
       position: absolute;
       top: 8px;
@@ -1561,6 +1606,9 @@
     let coachSubTab = "pivots";
     let chipCloudOpen = true;
     let reviewFilter = "all";
+    let assetPanelOpen = false;
+    let assetStatus = {};
+    let assetPoll = null;
 
     function loadCoachSectionCollapsed() {
       try {
@@ -2240,6 +2288,7 @@
             </div>
             <div class="header-actions">
               <button class="header-action" type="button" data-open-dashboard="true" title="Open dashboard to edit your build catalog">Edit Builds</button>
+              <button class="header-action ${assetPanelOpen ? "active" : ""}" type="button" data-refresh-data="true" title="Refetch build catalogs and card content">Refresh Data</button>
               ${canEndActiveRun ? `<button class="header-action header-action-warn" type="button" data-end-run="true" title="Mark this run as force-ended (use if the game crashed mid-run)">End Run</button>` : ""}
               ${canLeaveCompletedRun ? `<button class="header-action" type="button" data-dismiss-run="true">Leave Run</button>` : ""}
             </div>
@@ -2256,6 +2305,42 @@
           <button class="tab ${activeTab === "review" ? "active" : ""}" type="button" data-tab="review">Review</button>
           <button class="tab ${activeTab === "run" ? "active" : ""}" type="button" data-tab="run">Run</button>
         </div>
+      `;
+    }
+
+    const ASSET_KINDS = [
+      { kind: "builds", label: "Build catalogs", desc: "Latest hero build catalogs from GitHub." },
+      { kind: "content", label: "Card content", desc: "Static card data from playthebazaar.com." },
+    ];
+
+    function renderAssetRow({ kind, label, desc }) {
+      const entry = (assetStatus.kinds && assetStatus.kinds[kind]) || assetStatus[kind] || {};
+      const running = Boolean(entry.running);
+      const result = entry.last_result || null;
+      const statusName = running ? "checking" : (result ? result.status : "idle");
+      const message = running
+        ? "Refreshing..."
+        : (result && result.message ? result.message : desc);
+      return `
+        <div class="asset-row">
+          <div class="asset-row-main">
+            <div class="asset-row-label">${escapeHtml(label)}</div>
+            <div class="asset-status status-${escapeHtml(statusName)}">${escapeHtml(message)}</div>
+          </div>
+          <button class="header-action" type="button" data-asset-refresh="${kind}" ${running ? "disabled" : ""}>
+            ${running ? "Refreshing" : "Refresh"}
+          </button>
+        </div>
+      `;
+    }
+
+    function renderAssetsPanel() {
+      return `
+        <section class="section asset-panel">
+          <div class="section-kicker">Refresh data</div>
+          <h3 class="section-title">Refetch local assets</h3>
+          ${ASSET_KINDS.map(renderAssetRow).join("")}
+        </section>
       `;
     }
 
@@ -2990,6 +3075,7 @@
       root.innerHTML = `
         <div class="shell ${isCollapsed ? "collapsed" : ""}">
           ${renderHeader(overlayState)}
+          ${assetPanelOpen ? renderAssetsPanel() : ""}
           ${!idle && activeTab === "coach" ? renderActiveBuildHero(overlayState, getActiveCoach(overlayState)) : ""}
           ${idle ? "" : renderTabs()}
           <div class="content">
@@ -3178,6 +3264,20 @@
         return;
       }
 
+      const refreshData = event.target.closest("[data-refresh-data='true']");
+      if (refreshData && root.contains(refreshData)) {
+        event.preventDefault();
+        toggleAssetPanel();
+        return;
+      }
+
+      const assetRefresh = event.target.closest("[data-asset-refresh]");
+      if (assetRefresh && root.contains(assetRefresh)) {
+        event.preventDefault();
+        refreshAsset(assetRefresh.dataset.assetRefresh);
+        return;
+      }
+
       const reopenRun = event.target.closest("[data-reopen-run='true']");
       if (reopenRun && root.contains(reopenRun)) {
         event.preventDefault();
@@ -3276,6 +3376,41 @@
       }
       render();
       return buildCatalog;
+    }
+
+    function toggleAssetPanel() {
+      assetPanelOpen = !assetPanelOpen;
+      render();
+      if (assetPanelOpen) loadAssetStatus();
+    }
+
+    async function loadAssetStatus() {
+      try {
+        const response = await fetch("/api/assets/refresh/status", { cache: "no-store" });
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        assetStatus = await response.json();
+      } catch (e) {
+        assetStatus = { error: e.message };
+      }
+      render();
+      const kinds = (assetStatus && assetStatus.kinds) || {};
+      const anyRunning = Object.values(kinds).some((entry) => entry && entry.running);
+      if (assetPoll) { clearTimeout(assetPoll); assetPoll = null; }
+      if (anyRunning && assetPanelOpen) {
+        assetPoll = setTimeout(loadAssetStatus, 1000);
+      }
+    }
+
+    async function refreshAsset(kind) {
+      try {
+        const response = await fetch(`/api/assets/refresh?kind=${encodeURIComponent(kind)}`, { method: "POST" });
+        // 202 started, 409 already running — both return a status payload to render.
+        if (response.status === 202 || response.status === 409) {
+          assetStatus = await response.json();
+          render();
+        }
+      } catch (e) { /* surfaced on next poll */ }
+      loadAssetStatus();
     }
 
     async function fetchState() {
