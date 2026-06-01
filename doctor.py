@@ -25,6 +25,7 @@ import db
 import settings
 import refresh_images
 import scorer
+from stdio_safety import configure_stdio_backslashreplace
 from version import APP_VERSION
 
 
@@ -579,6 +580,12 @@ def export_diagnostics(output: Path | None = None, *, include_db: bool = False) 
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Force utf-8 + backslashreplace before any output. The "Bazaar Coach
+    # Doctor" shortcut runs the windowed BazaarCoach.exe, whose console stream
+    # can be a legacy code page (e.g. cp932); the em-dashes in check messages
+    # would otherwise raise UnicodeEncodeError and kill the command (issue #167,
+    # same bug class as #152/#157). Idempotent with the call in coach.py.
+    configure_stdio_backslashreplace()
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in {"doctor", "export-diagnostics"}:
         command = argv.pop(0)
