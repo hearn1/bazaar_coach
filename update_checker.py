@@ -524,6 +524,21 @@ def _reveal_in_file_manager(file_path: Path) -> None:
         subprocess.Popen(["xdg-open", str(file_path.parent)])
 
 
+def _open_in_file_manager(dir_path: Path) -> None:
+    """Open a folder in the OS file manager (no item selected).
+
+    Sibling of ``_reveal_in_file_manager`` for the case where there is no
+    specific file to highlight. Kept as its own seam so callers (and tests)
+    have a single place to mock instead of spawning Explorer inline.
+    """
+    if os.name == "nt":
+        subprocess.Popen(["explorer", str(dir_path)])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(dir_path)])
+    else:
+        subprocess.Popen(["xdg-open", str(dir_path)])
+
+
 def _select_installer_asset(release: dict) -> Optional[dict]:
     assets = release.get("assets")
     if not isinstance(assets, list):

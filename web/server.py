@@ -1041,9 +1041,7 @@ def api_report_issue_open_logs():
     logs_dir = app_paths.logs_dir()
     # Fall back to opening the logs folder itself if no log file yet
     try:
-        import subprocess
-        if os.name == "nt":
-            subprocess.Popen(["explorer", str(logs_dir)])
+        update_checker._open_in_file_manager(logs_dir)
     except Exception:
         pass
     return jsonify({"ok": True, "log_path": None})
