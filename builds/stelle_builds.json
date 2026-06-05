@@ -40,7 +40,8 @@
           "carry_items": [],
           "support_items": [
             "Parts Picker",
-            "Pogo Stick"
+            "Pogo Stick",
+            "Flare Gun"
           ]
         },
         {
@@ -92,6 +93,17 @@
           ],
           "support_items": [
             "Ni-Kola"
+          ]
+        },
+        {
+          "name": "Drone Crusher / Parts Picker / Targeting Drone",
+          "phase": "late",
+          "core_items": [
+            "Targeting Drone"
+          ],
+          "carry_items": [],
+          "support_items": [
+            "Boosted Saucer"
           ]
         }
       ]
