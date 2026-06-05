@@ -532,8 +532,8 @@ INSTANCE_ID_PREFIXES = {
 
 if __name__ == "__main__":
     print("Bazaar API Schema Reference")
-    print(f"  Game version : 1.0.10238-prod-windows-x64")
-    print(f"  Verified     : 2026-04-16")
+    print(f"  Game version : 1.0.10983-prod-windows-x64")
+    print(f"  Verified     : 2026-06-05")
     print(f"  Run states   : {len(E_RUN_STATE)}")
     print(f"  Heroes       : {len(E_HERO)}")
     print(f"  Player attrs : {len(E_PLAYER_ATTRIBUTE)}")
