@@ -1,4 +1,4 @@
-﻿{
+{
   "schema_version": 1,
   "hero": "Karnok",
   "season": 15,
@@ -504,7 +504,7 @@
             "Charge"
           ],
           "hidden_lake": "Shortened enrage is better to reactivate item effects sooner.",
-          "notes": "Defensive enchant or lifesteal is usually necessary unless Ghillie Suit or other defense buys enough time. Recent non-ammo slow evidence supports Wildroot Amulet as an additional defensive support piece. High-confidence Self-Slow builds (3 samples) confirm Boa Constrictor, Chains, Enervating Sigil, Night Vision, and Hunter's Boots as the stable core â€” all already present here. Bat and Trapvine also surfaced in that evidence and are credible non-ammo slow support pieces."
+          "notes": "Defensive enchant or lifesteal is usually necessary unless Ghillie Suit or other defense buys enough time. Recent non-ammo slow evidence supports Wildroot Amulet as an additional defensive support piece. High-confidence Self-Slow builds (3 samples) confirm Boa Constrictor, Chains, Enervating Sigil, Night Vision, and Hunter's Boots as the stable core — all already present here. Bat and Trapvine also surfaced in that evidence and are credible non-ammo slow support pieces."
         },
         {
           "name": "Slow - Poison",
@@ -887,7 +887,7 @@
             "Fogshroom",
             "Waystones"
           ],
-          "notes": "Partial stub from automated enricher â€” carry_items, timing_profile, and condition still need curator review. Items in the archetype name now correctly appear as core. See issue #82."
+          "notes": "Partial stub from automated enricher — carry_items, timing_profile, and condition still need curator review. Items in the archetype name now correctly appear as core. See issue #82."
         }
       ]
     }

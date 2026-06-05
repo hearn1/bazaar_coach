@@ -1,4 +1,4 @@
-﻿{
+{
   "schema_version": 1,
   "hero": "Vanessa",
   "season": 15,
@@ -604,13 +604,13 @@
             "Charge",
             "Ammo"
           ],
-          "notes": "A focused Elemental Depth Charge variant distinct from broad Aquatic Vanessa. Yeti Crab generates Ammo for EDC's Charge bursts while Zoarcid adds Poison scaling. Dive Weights and Weights provide additional Charge support. Incendiary Rounds and Refractor are optional bridge support â€” include if already in the build, otherwise prioritize Aquatic trigger density."
+          "notes": "A focused Elemental Depth Charge variant distinct from broad Aquatic Vanessa. Yeti Crab generates Ammo for EDC's Charge bursts while Zoarcid adds Poison scaling. Dive Weights and Weights provide additional Charge support. Incendiary Rounds and Refractor are optional bridge support — include if already in the build, otherwise prioritize Aquatic trigger density."
         },
         {
           "name": "Incendiary Rounds",
           "phase": "late",
           "timing_profile": "scaling",
-          "condition": "Incendiary Rounds as a standalone burn engine without Refractor â€” supported by fast Aquatic triggers and Ammo items.",
+          "condition": "Incendiary Rounds as a standalone burn engine without Refractor — supported by fast Aquatic triggers and Ammo items.",
           "condition_items": [
             "Incendiary Rounds"
           ],

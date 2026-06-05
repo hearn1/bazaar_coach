@@ -1,4 +1,4 @@
-﻿{
+{
   "schema_version": 1,
   "hero": "Jules",
   "season": 15,
@@ -78,7 +78,7 @@
           "support_items": [
             "Froyo Cart"
           ],
-          "notes": "Partial stub from automated enricher â€” timing_profile and condition still need curator review. Zarlic placed in carry_items to mirror the existing Zarlic / Spice Rack / Instant Noodles archetype. See issue #82."
+          "notes": "Partial stub from automated enricher — timing_profile and condition still need curator review. Zarlic placed in carry_items to mirror the existing Zarlic / Spice Rack / Instant Noodles archetype. See issue #82."
         }
       ]
     }

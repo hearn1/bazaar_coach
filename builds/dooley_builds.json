@@ -1,4 +1,4 @@
-﻿{
+{
   "schema_version": 1,
   "hero": "Dooley",
   "season": 15,
@@ -588,7 +588,7 @@
             "Athanor",
             "Orange Julian"
           ],
-          "notes": "Bazaar Builds Terry-Dactyl lists were remarkably consistent: Launcher Core was the engine, Terry-Dactyl was the payoff, and the rest of the board existed to force more Flying triggers and faster Terry activations. Recent samples also show Mech-Moles as a credible hybrid payoff when the Launcher/Flying shell is already online. Athanor and Orange Julian both appeared in 2/2 recent samples â€” treat them as credible late support pieces."
+          "notes": "Bazaar Builds Terry-Dactyl lists were remarkably consistent: Launcher Core was the engine, Terry-Dactyl was the payoff, and the rest of the board existed to force more Flying triggers and faster Terry activations. Recent samples also show Mech-Moles as a credible hybrid payoff when the Launcher/Flying shell is already online. Athanor and Orange Julian both appeared in 2/2 recent samples — treat them as credible late support pieces."
         },
         {
           "name": "Weaponized Core",
@@ -680,7 +680,7 @@
             "Trapvine",
             "Athanor"
           ],
-          "notes": "Recent Mech-Moles posts often looked like a Launcher shell splashing a Mole package for extra scaling and combat presence. Duct Tape, Chris Army Knife, and compact Tech support still matter, but newer evidence points to a Launcher/Flying hybrid with Propeller Hat, Terry-Dactyl, Party Float, or Power Sander as common payoff support. Trapvine and Athanor both appeared in 2/2 recent samples â€” treat them as credible late support pieces."
+          "notes": "Recent Mech-Moles posts often looked like a Launcher shell splashing a Mole package for extra scaling and combat presence. Duct Tape, Chris Army Knife, and compact Tech support still matter, but newer evidence points to a Launcher/Flying hybrid with Propeller Hat, Terry-Dactyl, Party Float, or Power Sander as common payoff support. Trapvine and Athanor both appeared in 2/2 recent samples — treat them as credible late support pieces."
         },
         {
           "name": "C.O.R.A.",
@@ -793,7 +793,7 @@
           "support_items": [
             "Headset"
           ],
-          "notes": "Partial stub from automated enricher â€” carry_items, timing_profile, and condition still need curator review. Items in the archetype name now correctly appear as core (mirrored from Stelle's same-named archetype). See issue #82."
+          "notes": "Partial stub from automated enricher — carry_items, timing_profile, and condition still need curator review. Items in the archetype name now correctly appear as core (mirrored from Stelle's same-named archetype). See issue #82."
         }
       ]
     }
