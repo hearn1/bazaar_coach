@@ -34,7 +34,8 @@
           "phase": "late",
           "core_items": [
             "Instant Noodles",
-            "Spice Rack"
+            "Spice Rack",
+            "Trail Mix"
           ],
           "carry_items": [
             "Zarlic"
@@ -55,7 +56,8 @@
           "core_items": [
             "Bread Knife",
             "Farmer's Market",
-            "Pasta"
+            "Pasta",
+            "Trail Mix"
           ],
           "carry_items": [],
           "support_items": [
@@ -67,7 +69,8 @@
           "phase": "late",
           "core_items": [
             "Meat Tenderizer",
-            "Sorbet"
+            "Sorbet",
+            "Trail Mix"
           ],
           "carry_items": [
             "Zarlic"
