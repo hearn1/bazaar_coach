@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # Debugging notes (dict layouts, mid-run pickup gaps, FAST_GAMESIM_PATH):
 # see docs/mono-internals.md.
 """
@@ -45,7 +45,7 @@ import threading
 import time
 from pathlib import Path
 
-from stdio_safety import configure_stdio_backslashreplace
+from stdio_safety import configure_stdio_backslashreplace, configure_line_buffering
 
 configure_stdio_backslashreplace()
 
@@ -302,15 +302,15 @@ def on_message(message, data):
         if msg_type == "info":
             msg = payload["msg"]
             if _should_print_info(msg):
-                print(f"[Mono] {msg}")
+                print(f"[Mono] {msg}", flush=True)
         elif msg_type == "error":
-            print(f"[Mono] ERROR: {payload['msg']}")
+            print(f"[Mono] ERROR: {payload['msg']}", flush=True)
         elif msg_type == "debug":
             msg = payload["msg"]
             if _should_print_debug(msg):
                 print(f"[Mono] DEBUG: {msg}")
         elif msg_type == "ready":
-            print(f"[Mono] {payload['msg']}")
+            print(f"[Mono] {payload['msg']}", flush=True)
         elif msg_type == "probe":
             handle_probe(payload)
         elif msg_type == "capture_call":
@@ -1559,7 +1559,7 @@ def find_game_pid(process_name="TheBazaar.exe"):
 
 
 def wait_for_game_pid(process_name="TheBazaar.exe", poll_seconds=1.0, settle_seconds=8.0):
-    print(f"[Mono] Waiting for {process_name} to start...")
+    print(f"[Mono] Waiting for {process_name} to start...", flush=True)
     first_seen_at = None
     chosen_pid = None
     last_status_at = 0.0
@@ -1581,7 +1581,7 @@ def wait_for_game_pid(process_name="TheBazaar.exe", poll_seconds=1.0, settle_sec
             chosen_pid = None
             now = time.time()
             if now - last_status_at >= 5:
-                print(f"[Mono] Still waiting for {process_name}...")
+                print(f"[Mono] Still waiting for {process_name}...", flush=True)
                 last_status_at = now
 
         time.sleep(poll_seconds)
@@ -1592,6 +1592,8 @@ def main():
     global _VERBOSE_DEBUG, _VERBOSE_HOOKS, _RENDER_ALL_SNAPSHOTS, _DETAILED_SNAPSHOTS, _FULL_DELTA_CARDS
     global _DELTA_PLAYER_ATTRS, _ACTION_EVENT_CARDS, _CAPTURE_OPPONENT_BOARD, _ENABLE_PROBES, _ENABLE_BROAD_HOOKS
     global _COMPACT_SNAPSHOTS, _SNAPSHOT_PRINT_MIN_INTERVAL_MS
+
+    configure_line_buffering()
 
     parser = argparse.ArgumentParser(
         description="Mono-hooking Frida capture for The Bazaar â€” "
@@ -1680,10 +1682,10 @@ def main():
                 pid = wait_for_game_pid(args.process)
             else:
                 print(f"[Mono] ERROR: {args.process} not found running.")
-                print("[Mono] Start the game first, or use --wait.")
+                print("[Mono] Start the game first, or use --wait.", flush=True)
                 sys.exit(1)
 
-    print(f"[Mono] Attaching to PID {pid} ({args.process})...")
+    print(f"[Mono] Attaching to PID {pid} ({args.process})...", flush=True)
 
     # Setup output directory
     if _do_log:
@@ -1697,7 +1699,7 @@ def main():
     try:
         session = frida.attach(pid)
     except Exception as e:
-        print(f"[Mono] Failed to attach: {e}")
+        print(f"[Mono] Failed to attach: {e}", flush=True)
         if "access" in str(e).lower():
             print("[Mono] Try running as Administrator.")
         sys.exit(1)
@@ -1734,8 +1736,8 @@ def main():
     script.on("message", on_message)
     script.load()
 
-    print(f"\n{'=' * 60}")
-    print(f"  MONO CAPTURE ACTIVE")
+    print(f"\n{'=' * 60}", flush=True)
+    print(f"  MONO CAPTURE ACTIVE", flush=True)
     print(f"  Play the game â€” game state snapshots will appear here")
     print(f"  Press Ctrl+C to stop")
     print(f"{'=' * 60}\n")
