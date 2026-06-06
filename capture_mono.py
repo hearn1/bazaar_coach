@@ -498,6 +498,21 @@ def handle_deferred_template_events(payload):
     # so feed them straight to the adapter — independent of the snapshot-id match
     # below, which a state burst can race past. Dedup by instance makes this safe
     # even if the same events are also picked up via the snapshot path.
+    # Diagnostic for issue #196: log every card_disposed event that carries an
+    # itm_/com_ instance so we can confirm whether sells emit CardDisposed.
+    for _te in template_events:
+        if (
+            isinstance(_te, dict)
+            and _te.get("event_type") == "card_disposed"
+        ):
+            _iid = _te.get("instance_id", "")
+            _pfx = _iid.split("_", 1)[0] if "_" in _iid else ""
+            if _pfx in ("itm", "com"):
+                print(
+                    f"[Mono] [#196-diag] card_disposed player-side: "
+                    f"instance={_iid} template={_te.get('template_id')}"
+                )
+
     if _mono_event_adapter is not None:
         ts = _last_merged_snapshot.get("timestamp") if _last_merged_snapshot else None
         if isinstance(ts, (int, float)):

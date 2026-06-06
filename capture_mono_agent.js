@@ -699,7 +699,15 @@ function readGameSimTemplateEventsFromList(eventsPtr) {
             // the same instance — so they must NOT be gated on templateId below.
             else if (className.includes('GameSimEventCardPurchased')) eventType = 'card_purchased';
             else if (className.includes('GameSimEventCardDisposed')) eventType = 'card_disposed';
-            if (!eventType) continue;
+            // Diagnostic #196: emit unknown GameSimEvent class names so we can
+            // discover what the game sends during a sell.
+            if (!eventType) {
+                if (className.includes('GameSimEvent')) {
+                    const instanceId = readDynamicStringField(eventPtr, ['InstanceId', '<InstanceId>k__BackingField']);
+                    send({type:'info', msg:'#196-diag unknown GameSimEvent: ' + className + ' instance=' + instanceId});
+                }
+                continue;
+            }
 
             const instanceId = readDynamicStringField(eventPtr, ['InstanceId', '<InstanceId>k__BackingField']);
             const templateId = readDynamicStringField(eventPtr, ['TemplateId', '<TemplateId>k__BackingField']);
