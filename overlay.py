@@ -64,17 +64,6 @@ class Api:
         settings.set("overlay.collapsed", bool(collapsed))
         return True
 
-    def open_dashboard(self, path: str = "/my-builds"):
-        """Open the local dashboard in the user's default browser."""
-        if not isinstance(path, str) or not path.startswith("/"):
-            path = "/my-builds"
-        try:
-            webbrowser.open(f"http://127.0.0.1:5555{path}", new=2)
-            return True
-        except Exception as e:
-            print(f"[Overlay] open_dashboard failed: {e}")
-            return False
-
     def open_external_url(self, url: str):
         """Open a validated https://github.com/ URL in the system browser."""
         if not isinstance(url, str) or not url.startswith("https://github.com/"):

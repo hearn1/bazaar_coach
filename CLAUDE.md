@@ -14,7 +14,7 @@ Current version: `APP_VERSION` in `version.py`.
 # Install runtime + test dependencies (Python 3.10+)
 pip install -r requirements.txt
 
-# One-command workflow: Mono capture + Flask dashboard + PyWebView overlay.
+# One-command workflow: Mono capture + local API + PyWebView overlay.
 # Decisions are scored live by LiveScorer as they insert via MonoEventAdapter.
 venv312\Scripts\python.exe coach.py
 venv312\Scripts\python.exe coach.py --no-mono       # skip Frida/Mono subprocess
@@ -36,13 +36,13 @@ venv312\Scripts\python.exe coach.py catalog-coverage --hero Karnok
 venv312\Scripts\python.exe -m pytest -q
 ```
 
-Dashboard: `http://127.0.0.1:5555` (`DEFAULT_WEB_PORT` in `coach.py`). Each session mirrors stdout/stderr to `logs/coach_YYYYMMDD_HHMMSS.log` — the file to share for debugging.
+Overlay: served at `http://127.0.0.1:5555/overlay` (`DEFAULT_WEB_PORT` in `coach.py`). Each session mirrors stdout/stderr to `logs/coach_YYYYMMDD_HHMMSS.log` — the file to share for debugging.
 
 Project is Windows-targeted at runtime; `frida`, `watchdog`, `pywebview` are unpinned in `requirements.txt` because they're Windows-venv- or game-build-dependent. Player.log autodetect (`app_paths.find_player_log`) is retained for `coach.py doctor` diagnostics only — it is no longer part of the decision pipeline.
 
 ## Files to skip unless directly relevant
 
-- `web/static/index.html`, `web/static/overlay.html` — large self-contained HTML with inline CSS+JS. Read only when changing the dashboard or overlay UI.
+- `web/static/overlay.html` — large self-contained HTML with inline CSS+JS. Read only when changing the overlay UI.
 - `<hero>_builds.json` under `builds/` — large data files. Grep for specific items; don't read whole.
 - `capture_mono_agent.js` — embedded Frida JS agent (loaded as a raw string by `capture_mono.py`). Read only when working on Mono hooks themselves.
 - `tests/`, `packaging/`, `dist/`, `captures/`, `logs/`, `venv312/` — generated, packaging, or runtime artifacts.
@@ -62,7 +62,6 @@ coach.py                   # entrypoint - launches the subsystems below
   │    ├─ web/overlay_state.py   # /api/overlay/state payload assembly
   │    ├─ web/review_builder.py  # overlay review row construction
   │    ├─ web/build_helpers.py   # catalog loading, archetype scoring, phase notes
-  │    ├─ web/static/index.html  # dashboard (self-contained, inline JS)
   │    └─ web/static/overlay.html # overlay UI (self-contained, inline JS)
   ├─ overlay.py            # PyWebView always-on-top launcher
   └─ scorer.py             # LiveScorer (scores decisions live; no CLI)

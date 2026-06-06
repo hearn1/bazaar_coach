@@ -148,7 +148,6 @@ coach.py                   # single entrypoint
   │    ├─ web/overlay_state.py
   │    ├─ web/review_builder.py
   │    ├─ web/build_helpers.py
-  │    ├─ web/static/index.html
   │    └─ web/static/overlay.html
   ├─ overlay.py            # PyWebView overlay
   └─ scorer.py             # LiveScorer

@@ -27,7 +27,7 @@ Get-FileHash -Algorithm SHA256 .\BazaarCoachSetup-<version>.exe
 
 1. Launch **Bazaar Coach** from the Start Menu.
 2. Launch *The Bazaar*.
-3. The overlay (the small always-on-top window that floats over the game) and dashboard (a web page at `http://127.0.0.1:5555` you can open in your browser) start and wait quietly if the game is not running yet.
+3. The overlay (the small always-on-top window that floats over the game) starts and waits quietly if the game is not running yet.
 4. Play normally.
 5. Session logs land in `%LOCALAPPDATA%\BazaarCoach\logs\`.
 
@@ -81,7 +81,7 @@ The uninstaller prompts once:
 
 ## Updates
 
-Update checks run in the background and surface in the dashboard / overlay when a new GitHub Release is available. They are non-blocking and never call placeholder URLs.
+Update checks run in the background and surface in the overlay when a new GitHub Release is available. They are non-blocking and never call placeholder URLs.
 
 ---
 

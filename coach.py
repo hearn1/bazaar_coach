@@ -411,7 +411,7 @@ def main():
     log_handle, original_stdout, original_stderr = start_session_logging()
     
     parser = argparse.ArgumentParser(
-        description="Unified Bazaar Coach runner (Mono capture + Flask dashboard + overlay)"
+        description="Unified Bazaar Coach runner (Mono capture + local API + overlay)"
     )
     parser.add_argument("--no-mono", action="store_true",
                         help="Do not launch capture_mono in a subprocess")
