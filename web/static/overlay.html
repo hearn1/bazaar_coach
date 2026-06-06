@@ -1682,6 +1682,7 @@
     let reportIssueTitle = "";
     let reportIssueDesc = "";
     let reportIssueNote = null;
+    let updateState = { status: null, loading: false, error: null };
 
     function loadCoachSectionCollapsed() {
       try {
@@ -2445,12 +2446,58 @@
       `;
     }
 
+    function renderUpdatesGroup() {
+      const { status, loading, error } = updateState;
+      let statusClass = "idle";
+      let message = "";
+      let showCheck = true;
+      let checkDisabled = loading;
+
+      if (loading) {
+        statusClass = "checking";
+        message = "Checking for updates…";
+        showCheck = false;
+      } else if (error) {
+        statusClass = "failed";
+        message = `Error: ${error}`;
+      } else if (!status) {
+        message = "Not checked yet.";
+      } else if (!status.ok && status.error) {
+        statusClass = "failed";
+        message = `Check failed: ${status.error}`;
+      } else if (!status.enabled) {
+        message = "Update checks disabled.";
+        showCheck = false;
+      } else if (status.update_available && !status.dismissed) {
+        statusClass = "updated";
+        message = `v${escapeHtml(String(status.latest_version))} available (current: v${escapeHtml(String(status.current_version))})`;
+      } else if (status.dismissed) {
+        message = `v${escapeHtml(String(status.latest_version))} dismissed. v${escapeHtml(String(status.current_version))} installed.`;
+      } else if (status.blocked) {
+        statusClass = "skipped";
+        message = `Blocked: ${escapeHtml(String(status.blocked))}`;
+      } else if (status.ok) {
+        message = `v${escapeHtml(String(status.current_version))} — up to date.`;
+      }
+
+      return `
+        <div class="asset-row">
+          <div class="asset-row-main">
+            <div class="asset-row-label">App updates</div>
+            <div class="asset-status status-${statusClass}">${message}</div>
+          </div>
+          ${showCheck ? `<button class="header-action" type="button" data-update-check="true" ${checkDisabled ? "disabled" : ""}>Check now</button>` : ""}
+        </div>
+      `;
+    }
+
     function renderAssetsPanel() {
       return `
         <section class="section asset-panel">
           <div class="section-kicker">Refresh data</div>
           <h3 class="section-title">Refetch local assets</h3>
           ${ASSET_KINDS.map(renderAssetRow).join("")}
+          ${renderUpdatesGroup()}
           ${renderReportIssueSection()}
         </section>
       `;
@@ -3458,6 +3505,13 @@
         return;
       }
 
+      const updateCheck = event.target.closest("[data-update-check='true']");
+      if (updateCheck && root.contains(updateCheck)) {
+        event.preventDefault();
+        loadUpdateStatus({ force: true });
+        return;
+      }
+
       const reportToggle = event.target.closest("[data-report-issue-toggle='true']");
       if (reportToggle && root.contains(reportToggle)) {
         event.preventDefault();
@@ -3592,7 +3646,10 @@
     function toggleAssetPanel() {
       assetPanelOpen = !assetPanelOpen;
       render();
-      if (assetPanelOpen) loadAssetStatus();
+      if (assetPanelOpen) {
+        loadAssetStatus();
+        loadUpdateStatus();
+      }
     }
 
     async function loadAssetStatus() {
@@ -3610,6 +3667,20 @@
       if (anyRunning && assetPanelOpen) {
         assetPoll = setTimeout(loadAssetStatus, 1000);
       }
+    }
+
+    async function loadUpdateStatus({ force = false } = {}) {
+      updateState = { ...updateState, loading: true, error: null };
+      render();
+      try {
+        const url = force ? "/api/updates/status?force=1" : "/api/updates/status";
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        updateState = { status: await response.json(), loading: false, error: null };
+      } catch (e) {
+        updateState = { status: null, loading: false, error: e.message };
+      }
+      render();
     }
 
     async function refreshAsset(kind) {
