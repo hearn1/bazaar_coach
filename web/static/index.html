@@ -555,6 +555,10 @@ const isFlagged = d => d.score_label === 'suboptimal'
                     || d.score_label === 'warning'
                     || d.skip_has_relevant === true;
 
+function _authHeaders() {
+  const t = (typeof window !== 'undefined' && window.BAZAAR_COACH_API_TOKEN) || '';
+  return t ? { 'X-Bazaar-Coach-Token': t } : {};
+}
 async function api(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status}`);
@@ -563,7 +567,7 @@ async function api(url) {
 async function postJson(url, payload) {
   const r = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ..._authHeaders() },
     body: JSON.stringify(payload || {}),
   });
   const data = await r.json().catch(() => ({}));
@@ -938,7 +942,7 @@ async function dismissUpdate(version) {
   try {
     await fetch('/api/updates/dismiss', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._authHeaders() },
       body: JSON.stringify({ version }),
     });
   } catch(e) {
@@ -1125,7 +1129,7 @@ async function refreshBuilds() {
   if (btn) btn.disabled = true;
   buildNoticeDismissed = false;
   try {
-    const response = await fetch('/api/builds/refresh', { method: 'POST' });
+    const response = await fetch('/api/builds/refresh', { method: 'POST', headers: _authHeaders() });
     if (!response.ok) throw new Error(`${response.status}`);
     const status = await response.json();
     renderBuildPanel(status);
@@ -1363,7 +1367,7 @@ async function submitMyBuildsForm() {
   try {
     const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._authHeaders() },
       body: JSON.stringify({ archetype }),
     });
     const data = await resp.json();
@@ -1387,6 +1391,7 @@ async function deleteMyBuildsArchetype(name) {
   try {
     const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}/${encodeURIComponent(name)}`, {
       method: 'DELETE',
+      headers: _authHeaders(),
     });
     const data = await resp.json();
     if (!resp.ok || !data.ok) {
@@ -1405,7 +1410,7 @@ async function toggleMyBuildsEnabled(enabled) {
   if (!hero) return;
   const action = enabled ? 'enable' : 'disable';
   try {
-    const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}/${action}`, { method: 'POST' });
+    const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}/${action}`, { method: 'POST', headers: _authHeaders() });
     if (!resp.ok) throw new Error(`${resp.status}`);
     loadMyBuilds();
   } catch(e) {

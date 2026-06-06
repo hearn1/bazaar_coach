@@ -71,11 +71,60 @@ _shutdown_callback: Optional[Callable] = None
 # closed the run (False means it was already closed or did not match).
 _force_end_callback: Optional[Callable[[int, str], bool]] = None
 
+# Per-process random token for local CSRF mitigation.  Set by set_api_token()
+# at startup; None means the guard is disabled (standalone / test mode).
+_API_TOKEN: Optional[str] = None
+_SERVER_PORT: int = DEFAULT_PORT
+_UNSAFE_METHODS = frozenset(["POST", "PUT", "PATCH", "DELETE"])
+
 app = Flask(
     __name__,
     static_folder=str(app_paths.bundled_asset_path("web", "static")),
     static_url_path="/static",
 )
+
+
+def set_api_token(token: str) -> None:
+    """Register the per-process API token used to guard unsafe routes."""
+    global _API_TOKEN
+    _API_TOKEN = token
+
+
+@app.before_request
+def _enforce_local_api_token():
+    """Require X-Bazaar-Coach-Token for all state-changing HTTP methods.
+
+    Origin is checked first as a second layer of defense. Absent Origin
+    (PyWebView / local clients) is allowed through to token validation.
+    """
+    if _API_TOKEN is None:
+        return  # Guard not configured — standalone or test mode.
+    if request.method not in _UNSAFE_METHODS:
+        return  # Safe method — no guard needed.
+
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        allowed = {
+            f"http://127.0.0.1:{_SERVER_PORT}",
+            f"http://localhost:{_SERVER_PORT}",
+        }
+        if origin not in allowed:
+            return jsonify({"ok": False, "error": "missing or invalid local API token"}), 403
+
+    provided = request.headers.get("X-Bazaar-Coach-Token", "")
+    if not provided or provided != _API_TOKEN:
+        return jsonify({"ok": False, "error": "missing or invalid local API token"}), 403
+
+
+def _serve_html_with_token(filename: str):
+    """Serve an HTML file with the runtime API token injected into <head>."""
+    from flask import Response
+    filepath = Path(app.static_folder) / filename
+    html = filepath.read_text(encoding="utf-8")
+    if _API_TOKEN:
+        script = f"<script>window.BAZAAR_COACH_API_TOKEN = {json.dumps(_API_TOKEN)};</script>"
+        html = html.replace("</head>", f"{script}\n</head>", 1)
+    return Response(html, mimetype="text/html")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -150,22 +199,22 @@ def _clean_archetype_label(archetype: Optional[str]) -> Optional[str]:
 
 @app.route("/")
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    return _serve_html_with_token("index.html")
 
 
 @app.route("/builds")
 def builds_page():
-    return send_from_directory(app.static_folder, "index.html")
+    return _serve_html_with_token("index.html")
 
 
 @app.route("/my-builds")
 def my_builds_page():
-    return send_from_directory(app.static_folder, "index.html")
+    return _serve_html_with_token("index.html")
 
 
 @app.route("/overlay")
 def overlay_page():
-    return send_from_directory(app.static_folder, "overlay.html")
+    return _serve_html_with_token("overlay.html")
 
 
 @app.route("/cards/<path:filename>")
@@ -1143,8 +1192,11 @@ def _run_production_server(port: int):
     serve(app, host="127.0.0.1", port=port, threads=8, _quiet=True)
 
 
-def start_web_server(port=DEFAULT_PORT, db_path=None, background=True, auto_refresh_builds=True):
-    global DB_PATH
+def start_web_server(port=DEFAULT_PORT, db_path=None, background=True, auto_refresh_builds=True, api_token=None):
+    global DB_PATH, _SERVER_PORT
+    _SERVER_PORT = port
+    if api_token:
+        set_api_token(api_token)
     if db_path:
         DB_PATH = Path(db_path)
     if auto_refresh_builds:

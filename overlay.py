@@ -11,6 +11,9 @@ window = None
 
 
 class Api:
+    def __init__(self, api_token: str = ""):
+        self._api_token = api_token
+
     def resize_window(self, width: int, height: int):
         if window is None:
             return False
@@ -33,11 +36,12 @@ class Api:
         """
         try:
             import urllib.request
-            urllib.request.urlopen(
+            req = urllib.request.Request(
                 "http://127.0.0.1:5555/api/control/shutdown",
                 data=b"",
-                timeout=2,
+                headers={"X-Bazaar-Coach-Token": self._api_token},
             )
+            urllib.request.urlopen(req, timeout=2)
         except Exception as e:
             print(f"[Overlay] Shutdown request failed: {e}")
         finally:
@@ -72,7 +76,7 @@ class Api:
             return False
 
 
-def launch_overlay(port: int = 5555):
+def launch_overlay(port: int = 5555, api_token: str = ""):
     global window
 
     geom = settings.get("overlay.geometry", {})
@@ -108,7 +112,7 @@ def launch_overlay(port: int = 5555):
         background_color="#07090f",
         resizable=True,
         min_size=(MIN_WIDTH, MIN_HEIGHT),
-        js_api=Api(),
+        js_api=Api(api_token=api_token),
     )
     webview.start(debug=False)
 

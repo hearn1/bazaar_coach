@@ -1557,6 +1557,11 @@
     const root = document.getElementById("root");
     const POLL_MS = 2000;
     const MANUAL_ARCH_KEY = "overlay_manual_arch";
+
+    function _authHeaders() {
+      const t = (typeof window !== 'undefined' && window.BAZAAR_COACH_API_TOKEN) || '';
+      return t ? { 'X-Bazaar-Coach-Token': t } : {};
+    }
     const COLLAPSED_KEY = "overlay_collapsed";
     const COACH_SECTION_COLLAPSE_KEY = "overlay_coach_section_collapsed";
     const EXPANDED_SIZE_KEY = "overlay_expanded_size";
@@ -1908,7 +1913,7 @@
       if (!overlayState?.is_active || !overlayState?.run_id) return;
       if (!window.confirm("End this run now? It will be marked as force-ended.")) return;
       try {
-        const resp = await fetch(`/api/runs/${overlayState.run_id}/force-end`, { method: "POST" });
+        const resp = await fetch(`/api/runs/${overlayState.run_id}/force-end`, { method: "POST", headers: _authHeaders() });
         if (!resp.ok) {
           const body = await resp.text().catch(() => "");
           console.error("Force-end failed", resp.status, body);
@@ -3403,7 +3408,7 @@
 
     async function refreshAsset(kind) {
       try {
-        const response = await fetch(`/api/assets/refresh?kind=${encodeURIComponent(kind)}`, { method: "POST" });
+        const response = await fetch(`/api/assets/refresh?kind=${encodeURIComponent(kind)}`, { method: "POST", headers: _authHeaders() });
         // 202 started, 409 already running — both return a status payload to render.
         if (response.status === 202 || response.status === 409) {
           assetStatus = await response.json();
