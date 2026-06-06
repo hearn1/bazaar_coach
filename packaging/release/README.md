@@ -80,7 +80,7 @@ Flow:
 
 **Note on `-PythonExe`:** the workflow does NOT pass `-PythonExe` to `build_portable.ps1`, so it falls back to the `python` on `PATH` supplied by `actions/setup-python`. The `venv312\` local path check will be absent on the runner, which is the correct fallback.
 
-**Known risk:** `frida`, `pywebview`, and `watchdog` are unpinned in `requirements.txt`. If a new release breaks the pip install on `windows-latest`, pin the affected package at the known-good version. Do not pin preemptively.
+**Dependency constraints:** `frida`, `pywebview`, `watchdog`, `UnityPy`, and `Pillow` are unpinned in `requirements.txt` but constrained for release builds via `constraints-release.txt` at the repo root. CI installs with `-c constraints-release.txt` so artifacts are reproducible. To refresh constraints after a compatibility test: run `build_test.ps1` on a clean Windows environment, confirm `smoke_test_portable.py` passes, then run `pip freeze` in the build venv and update the versions in `constraints-release.txt`. Open a PR with the new versions noted. Do not update constraints speculatively.
 
 **Code signing:** a commented SignPath slot-in is present in the workflow between the installer build and artifact upload steps (see issue #154).
 

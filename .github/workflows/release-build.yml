@@ -6,10 +6,10 @@ name: Release Build
 #   - push of a v* tag  →  full build + attach artifacts to the existing GitHub Release
 #   - workflow_dispatch →  full build (artifacts only, no release upload)
 #
-# NOTE: unpinned frida/pywebview/watchdog in requirements.txt will resolve to
-# their latest versions on windows-latest. If pip install fails on frida, the
-# step will fail with a clear error — do not silently pin here. Track at #154
-# if a version constraint is needed.
+# NOTE: unpinned frida/pywebview/watchdog in requirements.txt are constrained
+# by constraints-release.txt to known-good versions for reproducible builds.
+# To update: run build_test.ps1 on a clean Windows env, verify smoke test
+# passes, then update constraints-release.txt with the new pip freeze output.
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r packaging/pyinstaller/requirements-build.txt
+          pip install -r requirements.txt -r packaging/pyinstaller/requirements-build.txt -c constraints-release.txt
 
       - name: Extract version
         id: version

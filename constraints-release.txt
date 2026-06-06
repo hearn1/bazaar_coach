@@ -1,0 +1,24 @@
+# Release dependency constraints.
+# Known-good versions from the last successful Windows package smoke test.
+#
+# Usage:
+#   pip install -r requirements.txt -r packaging/pyinstaller/requirements-build.txt \
+#               -c constraints-release.txt
+#
+# These packages are left unpinned in requirements.txt because they are
+# Windows-venv- or game-build-dependent. This file pins them for CI release
+# builds so artifacts are reproducible.
+#
+# How to refresh:
+#   1. Run a full build_test.ps1 on a clean Windows environment.
+#   2. Confirm the portable zip passes smoke_test_portable.py.
+#   3. Run `pip freeze` in the build venv and update the versions below.
+#   4. Open a PR with the new versions noted in the description.
+#
+# Do not update these versions speculatively — only after a real smoke test.
+
+frida==17.9.1
+pywebview==6.2.1
+watchdog==6.0.0
+UnityPy==1.25.0
+Pillow==12.2.0
