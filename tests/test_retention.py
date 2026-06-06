@@ -161,3 +161,42 @@ def test_prune_cutoff_format(tmp_path, monkeypatch):
     # Basic sanity: should look like a date
     assert "T" in result["cutoff"]
     assert len(result["cutoff"]) >= 19
+
+
+def test_retention_prunes_run_history_but_keeps_api_snapshots_for_diagnostics(tmp_path, monkeypatch):
+    """api_game_states rows are intentionally not pruned by run-history retention."""
+    path = _point_db_at(tmp_path, monkeypatch)
+    db.init_db()
+
+    now = _now_utc()
+    old_ended = (now - timedelta(days=200)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    conn = sqlite3.connect(path)
+    cur = conn.execute(
+        "INSERT INTO api_game_states (captured_at) VALUES (?)",
+        (old_ended,),
+    )
+    api_state_id = cur.lastrowid
+
+    run_id = _insert_run(conn, "sess-old-api", old_ended)
+    conn.execute(
+        "INSERT INTO decisions (run_id, decision_seq, timestamp, game_state, decision_type, "
+        "offered, chosen_id, chosen_template, rejected, board_section, target_socket, api_game_state_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, 1, old_ended, "Shop", "buy", "[]", "id1", "tmpl1", "[]", "hand", "", api_state_id),
+    )
+    conn.commit()
+    conn.close()
+
+    result = db.prune_old_runs(90, _now=now)
+
+    assert result["deleted_runs"] == 1
+    assert result["deleted_decisions"] == 1
+
+    # api_game_states must survive — not pruned by run-history retention
+    conn2 = sqlite3.connect(path)
+    api_count = conn2.execute(
+        "SELECT COUNT(*) FROM api_game_states WHERE id=?", (api_state_id,)
+    ).fetchone()[0]
+    conn2.close()
+    assert api_count == 1
