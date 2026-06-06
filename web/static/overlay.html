@@ -228,6 +228,29 @@
     .asset-status.status-skipped { color: #f59e0b; }
     .asset-status.status-failed { color: #f87171; }
 
+    .asset-catalog-list {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .asset-catalog-item {
+      font: 500 10px/1.4 var(--mono);
+      color: var(--muted);
+      display: flex;
+      gap: 6px;
+    }
+
+    .asset-catalog-item .cat-hero {
+      color: #d1d5db;
+      min-width: 70px;
+    }
+
+    .asset-catalog-item .cat-source-bundled { color: #6b7280; }
+    .asset-catalog-item .cat-source-writable { color: #34d399; }
+    .asset-catalog-item .cat-source-user_builds { color: #a78bfa; }
+
     .header-quit {
       position: absolute;
       top: 8px;
@@ -2326,11 +2349,20 @@
       const message = running
         ? "Refreshing..."
         : (result && result.message ? result.message : desc);
+      const catalogs = (kind === "builds" && Array.isArray(entry.catalogs)) ? entry.catalogs : [];
+      const catalogList = catalogs.length
+        ? `<div class="asset-catalog-list">${catalogs.map(c => {
+            const srcClass = `cat-source-${escapeHtml(c.source || "bundled")}`;
+            const date = c.last_updated ? escapeHtml(c.last_updated.slice(0, 10)) : "no date";
+            return `<div class="asset-catalog-item"><span class="cat-hero">${escapeHtml(c.hero || "?")}</span><span class="${srcClass}">${escapeHtml(c.source || "bundled")}</span><span>${date}</span></div>`;
+          }).join("")}</div>`
+        : "";
       return `
         <div class="asset-row">
           <div class="asset-row-main">
             <div class="asset-row-label">${escapeHtml(label)}</div>
             <div class="asset-status status-${escapeHtml(statusName)}">${escapeHtml(message)}</div>
+            ${catalogList}
           </div>
           <button class="header-action" type="button" data-asset-refresh="${kind}" ${running ? "disabled" : ""}>
             ${running ? "Refreshing" : "Refresh"}
