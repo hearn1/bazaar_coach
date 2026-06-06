@@ -21,9 +21,9 @@ The **Uninstall** flow prompts once whether to remove both `%LOCALAPPDATA%\Bazaa
 
 ## Network traffic
 
-The app makes two kinds of outbound connections:
+The app may make the following outbound requests during normal startup and use:
 
-### 1. Update checks (background, opt-out)
+### 1. Update checks (automatic at startup, opt-out)
 
 At startup the app checks for new releases by calling:
 
@@ -45,9 +45,40 @@ This request identifies itself with a `User-Agent: BazaarCoach/<version>` header
 
 When `updates.enabled` is `false` the update check is skipped entirely and no request is made to `api.github.com`.
 
-### 2. Static content refresh (manual, on demand)
+### 2. Build catalog refresh (automatic at startup, opt-out)
 
-Running `coach.py refresh-content` or `coach.py refresh-images` fetches card data and images from the game's CDN (`playthebazaar.com`). These commands are run manually or on first setup; they are not background operations.
+At startup the app fetches the latest hero build catalogs from the coach repo's published main branch:
+
+```
+https://raw.githubusercontent.com/hearn1/bazaar_coach/main/builds/<hero>_builds.json
+```
+
+No run data or personal data is sent — only standard HTTPS request metadata. If the refresh fails (network unavailable, rate-limited, or a malformed response), the app falls back silently to the catalogs bundled with the installer.
+
+**To opt out**, launch the app with the `--no-refresh-builds` flag:
+
+```
+coach.py --no-refresh-builds
+```
+
+There is no `settings.json` key for this option at this time.
+
+### 3. Static content refresh (manual, on-demand only)
+
+Running `coach.py refresh-content` or `coach.py refresh-images` fetches card data and images from the game's CDN (`playthebazaar.com`). These commands are invoked manually or during first-time setup; they are **not** automatic background operations.
+
+No run data or personal data is sent.
+
+### 4. Fonts (automatic when the dashboard or overlay opens)
+
+The dashboard and overlay load typography from Google Fonts at runtime:
+
+```
+https://fonts.googleapis.com
+https://fonts.gstatic.com
+```
+
+These requests are made by the WebView2 browser engine each time the dashboard or overlay is displayed. No run data or personal data is included. The fonts are not bundled in the installer.
 
 ## Report-an-issue flow
 
@@ -63,6 +94,14 @@ The implementation is in `web/report_issue.py`; the GitHub URL is constructed cl
 
 ## Third-party network connections
 
-Bazaar Coach does not embed analytics, telemetry, or crash reporting. No data is sent to Anthropic, any ad network, or any third party other than the `api.github.com` update check described above.
+Bazaar Coach does not embed analytics, telemetry, or crash reporting. No data is sent to Anthropic, any ad network, or any third party other than the outbound connections listed above.
+
+| Host | Purpose | When |
+|------|---------|------|
+| `api.github.com` | Update check | Automatic at startup (opt-out via `updates.enabled`) |
+| `raw.githubusercontent.com` | Build catalog refresh | Automatic at startup (opt-out via `--no-refresh-builds`) |
+| `playthebazaar.com` | Card/static content refresh | Manual only (`refresh-content` / `refresh-images` commands) |
+| `fonts.googleapis.com` | Dashboard/overlay fonts | Automatic when dashboard or overlay opens |
+| `fonts.gstatic.com` | Dashboard/overlay fonts | Automatic when dashboard or overlay opens |
 
 Third-party component licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
