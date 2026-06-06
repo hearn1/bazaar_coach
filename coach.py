@@ -23,6 +23,7 @@ import argparse
 import atexit
 import datetime
 import os
+import secrets
 import signal
 import socket
 import subprocess
@@ -466,11 +467,13 @@ def main():
         print_startup_versions()
 
         from web.server import start_web_server, set_shutdown_callback
+        _api_token = secrets.token_urlsafe(32)
         start_web_server(
             port=DEFAULT_WEB_PORT,
             db_path=app_paths.db_path(),
             background=True,
             auto_refresh_builds=not args.no_refresh_builds,
+            api_token=_api_token,
         )
 
         # Register the shutdown callback so Flask endpoint can trigger shutdown
