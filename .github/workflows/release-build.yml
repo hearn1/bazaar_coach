@@ -21,6 +21,8 @@ jobs:
   build:
     name: Windows build
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -142,11 +144,14 @@ jobs:
 
           # The release is created by cut_release.ps1 before the tag is pushed.
           # Upload (clobber) both assets onto the existing release.
+          # gh release view cannot find draft releases; use the API instead.
           # Tolerate absence: if the release doesn't exist yet, warn and skip.
-          $releaseCheck = gh release view $tag 2>&1
-          if ($LASTEXITCODE -ne 0) {
+          $releases = gh api "repos/${{ github.repository }}/releases" | ConvertFrom-Json
+          $release = $releases | Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1
+          if (-not $release) {
             Write-Warning "GitHub Release for $tag not found — skipping asset upload."
             Write-Warning "Create the release manually or run cut_release.ps1 first."
+            $global:LASTEXITCODE = 0
           } else {
             gh release upload $tag $portable $installer $sums --clobber
           }
