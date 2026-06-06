@@ -114,4 +114,4 @@ Bazaar Coach does not embed analytics, telemetry, or crash reporting. No data is
 | `fonts.googleapis.com` | Dashboard/overlay fonts | Automatic when dashboard or overlay opens |
 | `fonts.gstatic.com` | Dashboard/overlay fonts | Automatic when dashboard or overlay opens |
 
-Third-party component licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Third-party component licenses are listed in [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
