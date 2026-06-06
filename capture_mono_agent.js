@@ -701,13 +701,7 @@ function readGameSimTemplateEventsFromList(eventsPtr) {
             else if (className.includes('GameSimEventCardDisposed')) eventType = 'card_disposed';
             // Diagnostic #196: emit unknown GameSimEvent class names so we can
             // discover what the game sends during a sell.
-            if (!eventType) {
-                if (className.includes('GameSimEvent')) {
-                    const instanceId = readDynamicStringField(eventPtr, ['InstanceId', '<InstanceId>k__BackingField']);
-                    send({type:'info', msg:'#196-diag unknown GameSimEvent: ' + className + ' instance=' + instanceId});
-                }
-                continue;
-            }
+            if (!eventType) continue;
 
             const instanceId = readDynamicStringField(eventPtr, ['InstanceId', '<InstanceId>k__BackingField']);
             const templateId = readDynamicStringField(eventPtr, ['TemplateId', '<TemplateId>k__BackingField']);
