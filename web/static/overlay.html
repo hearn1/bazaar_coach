@@ -3527,6 +3527,60 @@
       if (retry) retry.addEventListener("click", retryOverlayData);
     }
 
+    const _FOCUS_ATTR_WHITELIST = [
+      "data-report-issue-title",
+      "data-report-issue-desc",
+      "data-mbf-name",
+      "data-mbf-phase",
+      "data-mbf-core_items",
+      "data-mbf-carry_items",
+      "data-mbf-support_items",
+      "data-mbf-condition_items",
+      "data-mbf-timing_profile",
+      "data-mbf-notes",
+      "data-card-search",
+      "data-browse-hero-select",
+      "data-my-builds-hero-select",
+    ];
+
+    function captureFocusedInputState() {
+      const el = document.activeElement;
+      if (!el || !root.contains(el)) return null;
+      const tag = el.tagName.toLowerCase();
+      if (tag !== "input" && tag !== "textarea" && tag !== "select") return null;
+      let attr = null;
+      for (const a of _FOCUS_ATTR_WHITELIST) {
+        if (el.hasAttribute(a)) { attr = a; break; }
+      }
+      if (!attr) return null;
+      return {
+        attr,
+        selectionStart: el.selectionStart ?? null,
+        selectionEnd: el.selectionEnd ?? null,
+        selectionDirection: el.selectionDirection ?? null,
+        scrollTop: el.scrollTop,
+        scrollLeft: el.scrollLeft,
+      };
+    }
+
+    function restoreFocusedInputState(snapshot) {
+      if (!snapshot) return;
+      const el = root.querySelector(`[${snapshot.attr}]`);
+      if (!el || el.disabled) return;
+      try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_2) {} }
+      if (snapshot.selectionStart !== null && typeof el.setSelectionRange === "function") {
+        try {
+          el.setSelectionRange(
+            snapshot.selectionStart,
+            snapshot.selectionEnd,
+            snapshot.selectionDirection || "none"
+          );
+        } catch (_) {}
+      }
+      if (snapshot.scrollTop) el.scrollTop = snapshot.scrollTop;
+      if (snapshot.scrollLeft) el.scrollLeft = snapshot.scrollLeft;
+    }
+
     function captureScrollPosition() {
       const content = root.querySelector(".content");
       if (content) {
@@ -3665,6 +3719,7 @@
         return;
       }
 
+      const focusedInput = captureFocusedInputState();
       captureScrollPosition();
       captureReportIssueFormValues();
       captureMyBuildsFormValues();
@@ -3724,6 +3779,7 @@
       }
 
       attachContentBehaviors();
+      restoreFocusedInputState(focusedInput);
     }
 
     function beginResize(event) {
