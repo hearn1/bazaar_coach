@@ -179,6 +179,9 @@ class MonoEventAdapter:
         # same GameSim CardPurchased event (it can recur across the snapshot and
         # its late deferred-template enrichment) is only turned into one decision.
         self._emitted_card_purchases: set = set()
+        # instance_ids already emitted as card_sold this run via card_disposed —
+        # dedup so a disposal seen in both inline and deferred events fires once.
+        self._emitted_card_disposals: set = set()
 
         # One-shot flags per run
         self._emitted_run_start: bool = False
@@ -436,6 +439,35 @@ class MonoEventAdapter:
                 "target_socket": None,
                 "source": "mono",
             })
+
+        # CardDisposed is the authoritative sell signal in the Mono-only flow.
+        # The game emits CardDisposed for both player sells and non-chosen offers
+        # in selection sets. Emit card_sold for all player-side prefixes and let
+        # RunState distinguish owned (real sell) from unowned (rejected offer).
+        for e in template_events:
+            if not isinstance(e, dict) or e.get("event_type") != "card_disposed":
+                continue
+            iid = e.get("instance_id")
+            if not iid or iid in self._emitted_card_disposals:
+                continue
+            prefix = iid.split("_", 1)[0] if "_" in iid else ""
+            if prefix not in ("itm", "com"):
+                continue
+            self._emitted_card_disposals.add(iid)
+            template_id = (
+                self._instance_templates.get(iid)
+                or e.get("template_id")
+                or (_template_for_instance(snap, iid) if snap else "")
+                or None
+            )
+            events.append({
+                "event": "card_sold",
+                "ts": ts,
+                "instance_id": iid,
+                "template_id": template_id,
+                "source": "mono",
+            })
+
         return events
 
     # ------------------------------------------------------------------
@@ -483,8 +515,11 @@ class MonoEventAdapter:
         Sell: a card disappeared from player_board between snapshots,
         gold increased, and there's no matching cards_disposed this tick.
 
-        Note: cards_disposed is a log-side event — we can't read it here,
-        so we use the gold-delta heuristic as the sell signal.
+        Note: in the Mono-only flow the owned-card board never populates
+        (GameStateSync is too sparse), so _board_instance_ids returns empty
+        and ``gone`` is always empty. This heuristic is structurally unreachable
+        in Mono-only; the authoritative sell signal is CardDisposed via
+        _purchase_events_from_template_events. Kept as a defensive fallback.
         """
         if self._prev_snap is None:
             return None
@@ -637,6 +672,7 @@ class MonoEventAdapter:
         self._prev_shop_window_id = None
         self._instance_templates = {}
         self._emitted_card_purchases = set()
+        self._emitted_card_disposals = set()
         self._emitted_run_start = False
         self._emitted_hero = False
         self._emitted_session_id = False

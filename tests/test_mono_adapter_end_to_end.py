@@ -212,7 +212,7 @@ def test_reroll_produces_skip_decisions(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Sell
+# Sell — board-diff path (legacy heuristic, requires board populated)
 # ---------------------------------------------------------------------------
 
 def test_sell_is_processed_and_removes_card_from_board(tmp_path, monkeypatch):
@@ -271,6 +271,106 @@ def test_sell_is_processed_and_removes_card_from_board(tmp_path, monkeypatch):
     assert "itm_hat" not in state.board._cards, (
         "itm_hat should be removed from BoardState after sell"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sell — card_disposed pathway (Mono-only, issue #196)
+# ---------------------------------------------------------------------------
+
+def test_reward_acquired_then_sold_via_card_disposed(tmp_path, monkeypatch):
+    """
+    Reward acquired via CardPurchased template event, then sold via CardDisposed
+    template event → card removed from BoardState.
+
+    This is the Mono-only path: the owned-card board never populates, so
+    _detect_sell (board-diff heuristic) cannot fire.  The CardDisposed event
+    emitted by the game is the authoritative signal.
+    """
+    _point_db_at(tmp_path, monkeypatch, name="disposed_sell_e2e.db")
+    db.init_db()
+    monkeypatch.setattr(run_state._scorer, "LiveScorer", _NullScorer)
+
+    state = RunState(event_source="mono")
+    adapter = MonoEventAdapter(state, event_source="mono")
+
+    _bootstrap_run(adapter, state, hero="Karnok")
+
+    # Step 1: acquire the item as a reward via CardPurchased template event.
+    # The board list is empty (Mono-only — owned-card board never populates).
+    adapter.process_snapshot(_make_snap(
+        "EncounterState",
+        offered=[],
+        board=[],
+        gold=10,
+        ts="2026-01-01T00:00:01+00:00",
+        hero="Karnok",
+    ))
+    # Deferred template events deliver the purchase (card_dealt + card_purchased).
+    adapter.ingest_card_events([
+        {"event_type": "card_dealt", "instance_id": "itm_anaconda", "template_id": "T_ANACONDA"},
+        {"event_type": "card_purchased", "instance_id": "itm_anaconda"},
+    ], ts="2026-01-01T00:00:01+00:00")
+
+    assert "itm_anaconda" in state.board._cards, (
+        "itm_anaconda should be in BoardState after CardPurchased template event"
+    )
+
+    # Step 2: sell the item. The game emits CardDisposed; board list stays empty.
+    adapter.ingest_card_events([
+        {"event_type": "card_disposed", "instance_id": "itm_anaconda", "template_id": "T_ANACONDA"},
+    ], ts="2026-01-01T00:00:02+00:00")
+
+    assert "itm_anaconda" not in state.board._cards, (
+        "itm_anaconda should be removed from BoardState after CardDisposed (sell)"
+    )
+
+
+def test_non_chosen_offer_disposed_not_recorded_as_sell(tmp_path, monkeypatch):
+    """
+    CardDisposed for a non-chosen shop offer (never owned) → not recorded as a sell.
+    The card was offered but not purchased, so board.lookup returns None.
+    """
+    _point_db_at(tmp_path, monkeypatch, name="disposed_offer_e2e.db")
+    db.init_db()
+    monkeypatch.setattr(run_state._scorer, "LiveScorer", _NullScorer)
+
+    state = RunState(event_source="mono")
+    adapter = MonoEventAdapter(state, event_source="mono")
+
+    _bootstrap_run(adapter, state, hero="Karnok")
+
+    # Item was offered but never purchased.
+    adapter.process_snapshot(_make_snap(
+        "EncounterState",
+        offered=[{"instance_id": "itm_rejected", "template_id": "T_REJ"}],
+        board=[],
+        gold=10,
+        ts="2026-01-01T00:00:01+00:00",
+        hero="Karnok",
+    ))
+
+    # CardDisposed fires for the non-chosen offer.
+    adapter.ingest_card_events([
+        {"event_type": "card_dealt", "instance_id": "itm_rejected", "template_id": "T_REJ"},
+        {"event_type": "card_disposed", "instance_id": "itm_rejected"},
+    ], ts="2026-01-01T00:00:02+00:00")
+
+    # Card was never in board, so no sell should have been recorded.
+    assert "itm_rejected" not in state.board._cards, (
+        "itm_rejected should not be in BoardState — it was never purchased"
+    )
+    db.flush()
+    # No sell decision row should exist.
+    import sqlite3
+    conn = sqlite3.connect(tmp_path / "disposed_offer_e2e.db")
+    try:
+        sell_count = conn.execute(
+            "SELECT COUNT(*) FROM decisions WHERE run_id = ? AND decision_type = 'sell'",
+            (state.run_id,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert sell_count == 0, f"Expected 0 sell decisions for non-chosen offer, got {sell_count}"
 
 
 # ---------------------------------------------------------------------------

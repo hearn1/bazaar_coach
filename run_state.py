@@ -1117,15 +1117,20 @@ class RunState:
         gold_earned = event.get("gold_earned")
         category, card_record = self.board.pop(instance_id)
         if category is None or card_record is None:
-            print(
-                f"[RunState] Sold Card line seen, but no known owned card matched {instance_id}"
-            )
+            # Mono-only: card_disposed fires for both sells and non-chosen offers;
+            # an unowned instance is a rejected offer — not an error.
+            if event.get("source") != "mono":
+                print(
+                    f"[RunState] Sold Card line seen, but no known owned card matched {instance_id}"
+                )
             if self._pending_sell_commands:
                 self._clear_pending_sell_commands(
                     "sold line could not match owned card; clearing stale sell queue"
                 )
             return
-        signal = "sell_command_plus_sold_line" if self._pending_sell_commands else "sold_line"
+        signal = "card_disposed_mono" if event.get("source") == "mono" else (
+            "sell_command_plus_sold_line" if self._pending_sell_commands else "sold_line"
+        )
         self._record_sell_disposal(
             category=category,
             card_record=card_record,
