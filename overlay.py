@@ -75,6 +75,17 @@ class Api:
             print(f"[Overlay] open_dashboard failed: {e}")
             return False
 
+    def open_external_url(self, url: str):
+        """Open a validated https://github.com/ URL in the system browser."""
+        if not isinstance(url, str) or not url.startswith("https://github.com/"):
+            return False
+        try:
+            webbrowser.open(url, new=2)
+            return True
+        except Exception as e:
+            print(f"[Overlay] open_external_url failed: {e}")
+            return False
+
 
 def launch_overlay(port: int = 5555, api_token: str = ""):
     global window
