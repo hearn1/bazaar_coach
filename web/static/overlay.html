@@ -292,6 +292,49 @@
     .asset-catalog-item .cat-source-writable { color: #34d399; }
     .asset-catalog-item .cat-source-user_builds { color: #a78bfa; }
 
+    .history-run-list { display: flex; flex-direction: column; gap: 2px; }
+
+    .history-run-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: 13px/1.3 var(--body);
+      border: 1px solid transparent;
+      flex-wrap: wrap;
+    }
+    .history-run-row:hover {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(255,255,255,0.06);
+    }
+    .history-run-row.active {
+      background: rgba(77,156,245,0.08);
+      border-color: rgba(77,156,245,0.2);
+    }
+    .history-run-id {
+      font: 600 11px/1 var(--mono);
+      color: var(--muted);
+      min-width: 30px;
+    }
+    .history-run-hero { font-weight: 600; color: var(--text); }
+    .history-run-arch {
+      color: var(--blue);
+      font-size: 11px;
+      font-style: italic;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .history-run-pvp {
+      font: 11px/1 var(--mono);
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
     .header-quit {
       position: absolute;
       top: 8px;
@@ -1683,7 +1726,13 @@
     let reportIssueDesc = "";
     let reportIssueNote = null;
     let updateState = { status: null, loading: false, error: null };
-    let activeView = null; // "build-data" = browse, "my-builds" = edit user builds
+    let activeView = null; // "build-data" | "my-builds" | "history" while in a management view
+    let historyState = {
+      runs: [],
+      runsLoading: false,
+      runsError: null,
+      selectedRunId: null,
+    };
     let browseCatalog = null;
     let browseHero = "";
     let browseCatalogLoading = false;
@@ -3095,6 +3144,62 @@
       `;
     }
 
+    function renderHistoryView() {
+      let listHtml = "";
+      if (historyState.runsLoading) {
+        listHtml = `<div class="note">Loading runs…</div>`;
+      } else if (historyState.runsError) {
+        listHtml = `<div class="note">${escapeHtml(historyState.runsError)}</div>`;
+      } else if (!historyState.runs.length) {
+        listHtml = `<div class="note">No runs recorded yet. Start a game to begin coaching.</div>`;
+      } else {
+        listHtml = historyState.runs.map((r) => {
+          const isActive = !r.ended_at;
+          const outcomeLabel = isActive
+            ? "In Progress"
+            : r.outcome
+            ? String(r.outcome).replace(/_/g, " ").toUpperCase()
+            : "UNKNOWN";
+          const pillClass = isActive
+            ? "run-pill live"
+            : r.outcome === "victory"
+            ? "run-pill live"
+            : r.outcome === "defeat" || r.outcome === "force_ended" || r.outcome === "interrupted"
+            ? "run-pill defeat"
+            : "run-pill complete";
+          const pvp = `${r.pvp_wins ?? 0}W/${r.pvp_losses ?? 0}L`;
+          const selected = r.id === historyState.selectedRunId;
+          return `
+            <div class="history-run-row${selected ? " active" : ""}" data-history-run-id="${r.id}">
+              <span class="history-run-id">#${r.id}</span>
+              <span class="history-run-hero">${escapeHtml(r.hero || "?")}</span>
+              ${r.archetype ? `<span class="history-run-arch">${escapeHtml(r.archetype)}</span>` : `<span class="history-run-arch"></span>`}
+              <span class="${pillClass}">${escapeHtml(outcomeLabel)}</span>
+              <span class="history-run-pvp">${escapeHtml(pvp)}</span>
+            </div>
+          `;
+        }).join("");
+      }
+
+      const detailHtml = historyState.selectedRunId
+        ? `<section class="section"><div class="note">Run #${historyState.selectedRunId} selected — full detail coming in a future update.</div></section>`
+        : "";
+
+      return `
+        <section class="section hero-card">
+          <div class="section-kicker">Browse</div>
+          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
+            <h2 class="hero-name" style="margin:0;">Run History</h2>
+            <button class="header-action" type="button" data-history-back="true">Back</button>
+          </div>
+        </section>
+        <section class="section">
+          <div class="history-run-list">${listHtml}</div>
+        </section>
+        ${detailHtml}
+      `;
+    }
+
     function renderBuildDataView() {
       const heroOptions = browseHeroList.length
         ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === browseHero ? " selected" : ""}>${escapeHtml(h)}</option>`).join("")
@@ -3344,7 +3449,8 @@
         <section class="section">
           <div class="section-kicker">Manage</div>
           <h3 class="section-title">Tools</h3>
-          <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <button class="header-action" type="button" data-open-history="true">Run History</button>
             <button class="header-action" type="button" data-open-build-data="true">Browse Builds</button>
             <button class="header-action" type="button" data-open-my-builds="true">My Builds</button>
           </div>
@@ -3360,6 +3466,9 @@
         }
         if (activeView === "my-builds") {
           return `${itemAlert}${renderMyBuildsView()}`;
+        }
+        if (activeView === "history") {
+          return `${itemAlert}${renderHistoryView()}`;
         }
         return `${itemAlert}${renderIdleState(state)}`;
       }
@@ -3951,6 +4060,33 @@
         return;
       }
 
+      const openHistory = event.target.closest("[data-open-history='true']");
+      if (openHistory && root.contains(openHistory)) {
+        event.preventDefault();
+        openHistoryView();
+        return;
+      }
+
+      const historyBack = event.target.closest("[data-history-back='true']");
+      if (historyBack && root.contains(historyBack)) {
+        event.preventDefault();
+        activeView = null;
+        contentScrollTop = 0;
+        render();
+        return;
+      }
+
+      const historyRunRow = event.target.closest("[data-history-run-id]");
+      if (historyRunRow && root.contains(historyRunRow)) {
+        event.preventDefault();
+        const runId = parseInt(historyRunRow.dataset.historyRunId, 10);
+        if (!isNaN(runId)) {
+          historyState = { ...historyState, selectedRunId: runId };
+          render();
+        }
+        return;
+      }
+
       const reopenRun = event.target.closest("[data-reopen-run='true']");
       if (reopenRun && root.contains(reopenRun)) {
         event.preventDefault();
@@ -4230,6 +4366,27 @@
       if (defaultHero) {
         fetchBrowseCatalog(defaultHero);
       }
+    }
+
+    async function openHistoryView() {
+      historyState = { runs: [], runsLoading: false, runsError: null, selectedRunId: null };
+      activeView = "history";
+      render();
+      await loadHistoryRuns();
+    }
+
+    async function loadHistoryRuns() {
+      historyState = { ...historyState, runsLoading: true, runsError: null };
+      render();
+      try {
+        const resp = await fetch("/api/runs", { cache: "no-store" });
+        if (!resp.ok) throw new Error(`status ${resp.status}`);
+        const runs = await resp.json();
+        historyState = { ...historyState, runs, runsLoading: false };
+      } catch (e) {
+        historyState = { ...historyState, runsLoading: false, runsError: e.message || "Failed to load runs" };
+      }
+      render();
     }
 
     function toggleAssetPanel() {
