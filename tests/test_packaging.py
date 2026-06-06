@@ -272,6 +272,47 @@ def test_no_stray_root_catalogs():
     )
 
 
+_UNPINNED_PACKAGES = {"frida", "pywebview", "watchdog", "unitypy", "pillow"}
+
+
+def test_constraints_release_file_exists():
+    assert (app_paths.repo_dir() / "constraints-release.txt").is_file()
+
+
+def test_constraints_release_covers_unpinned_packages():
+    text = (app_paths.repo_dir() / "constraints-release.txt").read_text(encoding="utf-8")
+    pinned = {
+        line.split("==")[0].strip().lower()
+        for line in text.splitlines()
+        if "==" in line and not line.lstrip().startswith("#")
+    }
+    missing = _UNPINNED_PACKAGES - pinned
+    assert not missing, (
+        f"constraints-release.txt is missing pins for: {missing}. "
+        "Add known-good versions from the last successful Windows smoke test."
+    )
+
+
+def test_release_workflow_installs_with_constraints():
+    workflow = (
+        app_paths.repo_dir() / ".github" / "workflows" / "release-build.yml"
+    ).read_text(encoding="utf-8")
+    assert "-c constraints-release.txt" in workflow, (
+        "release-build.yml must install with -c constraints-release.txt "
+        "so CI builds are reproducible."
+    )
+
+
+def test_release_readme_documents_constraints():
+    readme = (
+        app_paths.repo_dir() / "packaging" / "release" / "README.md"
+    ).read_text(encoding="utf-8")
+    assert "constraints-release.txt" in readme, (
+        "packaging/release/README.md must document the constraints file "
+        "and how to refresh it."
+    )
+
+
 def test_doctor_flags_stray_root_catalog(tmp_path, monkeypatch):
     """doctor.find_stray_root_catalogs reports filenames that drifted back to root."""
     import doctor
