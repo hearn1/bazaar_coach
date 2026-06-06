@@ -1683,6 +1683,12 @@
     let reportIssueDesc = "";
     let reportIssueNote = null;
     let updateState = { status: null, loading: false, error: null };
+    let activeView = null; // "build-data" while browsing catalogs
+    let browseCatalog = null;
+    let browseHero = "";
+    let browseCatalogLoading = false;
+    let browseCatalogError = "";
+    let browseHeroList = [];
 
     function loadCoachSectionCollapsed() {
       try {
@@ -3055,6 +3061,74 @@
       `;
     }
 
+    function renderBuildDataArchGroup(title, tone, items, itemImages) {
+      const compact = compactItems(items);
+      if (!compact.length) return "";
+      const colorMap = { core: "var(--amber)", carry: "var(--blue)", support: "#a78bfa" };
+      const rows = compact.map((item) => `
+        <div class="item-row">
+          ${renderItemArt(item, itemImages[item], "item-thumb", false)}
+          <div style="min-width:0">
+            <div class="item-name">${escapeHtml(item)}</div>
+          </div>
+        </div>
+      `).join("");
+      return `
+        <div class="list-group" style="color:${colorMap[tone] || "var(--muted)"}">
+          <div class="slot-head">
+            <div class="slot-head-row">
+              <div class="slot-pill"><span class="slot-dot"></span><span class="list-label">${escapeHtml(title)}</span></div>
+              <span class="slot-count">${escapeHtml(String(compact.length))}</span>
+            </div>
+          </div>
+          <div class="item-list">${rows}</div>
+        </div>
+      `;
+    }
+
+    function renderBuildDataView() {
+      const heroOptions = browseHeroList.length
+        ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === browseHero ? " selected" : ""}>${escapeHtml(h)}</option>`).join("")
+        : `<option value="${escapeHtml(browseHero)}">${escapeHtml(browseHero || "Loading…")}</option>`;
+
+      let catalogHtml = "";
+      if (browseCatalogLoading) {
+        catalogHtml = `<section class="section"><div class="note">Loading catalog…</div></section>`;
+      } else if (browseCatalogError) {
+        catalogHtml = `<section class="section"><div class="note">${escapeHtml(browseCatalogError)}</div></section>`;
+      } else if (browseCatalog) {
+        const itemImages = browseCatalog.itemImages || {};
+        if (!browseCatalog.archetypes.length) {
+          catalogHtml = `<section class="section"><div class="note">No archetypes found for ${escapeHtml(browseHero)}.</div></section>`;
+        } else {
+          catalogHtml = browseCatalog.archetypes.map((arch) => `
+            <section class="section">
+              <div class="section-kicker">Archetype</div>
+              <h3 class="section-title">${escapeHtml(arch.name)}</h3>
+              ${arch.notes ? `<div class="hero-meta" style="margin-bottom:8px;">${escapeHtml(arch.notes)}</div>` : ""}
+              ${renderBuildDataArchGroup("Core", "core", arch.core_items, itemImages)}
+              ${renderBuildDataArchGroup("Carry", "carry", arch.carry_items, itemImages)}
+              ${renderBuildDataArchGroup("Support", "support", arch.support_items, itemImages)}
+            </section>
+          `).join("");
+        }
+      }
+
+      return `
+        <section class="section hero-card">
+          <div class="section-kicker">Browse</div>
+          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
+            <h2 class="hero-name" style="margin:0;">Build Catalog</h2>
+            <button class="header-action" type="button" data-build-data-back="true">Back</button>
+          </div>
+          <select data-browse-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+            ${heroOptions}
+          </select>
+        </section>
+        ${catalogHtml}
+      `;
+    }
+
     function renderIdleState(state) {
       const summaryState = state.is_active === false ? state : (lastCompletedState || state);
       const hasCompletedSummary = Boolean(
@@ -3105,12 +3179,21 @@
           ${runTier.detail ? `<div class="note" style="margin-top:8px;">${escapeHtml(runTier.detail)}</div>` : ""}
           ${hasCompletedSummary ? `<button class="header-action" type="button" data-reopen-run="true" style="margin-top:12px;">Review Last Run</button>` : ""}
         </section>
+
+        <section class="section">
+          <div class="section-kicker">Manage</div>
+          <h3 class="section-title">Tools</h3>
+          <button class="header-action" type="button" data-open-build-data="true">Browse Builds</button>
+        </section>
       `;
     }
 
     function renderActivePane(state) {
       const itemAlert = renderItemImagesAlert();
       if (shouldShowIdleState(state)) {
+        if (activeView === "build-data") {
+          return `${itemAlert}${renderBuildDataView()}`;
+        }
         return `${itemAlert}${renderIdleState(state)}`;
       }
       if (activeTab === "review") {
@@ -3330,6 +3413,13 @@
         resizeGrip.addEventListener("mousedown", beginResize);
       }
 
+      const browseHeroSelect = root.querySelector("[data-browse-hero-select]");
+      if (browseHeroSelect) {
+        browseHeroSelect.addEventListener("change", (e) => {
+          fetchBrowseCatalog(e.target.value);
+        });
+      }
+
       attachContentBehaviors();
     }
 
@@ -3543,6 +3633,22 @@
         return;
       }
 
+      const openBuildData = event.target.closest("[data-open-build-data='true']");
+      if (openBuildData && root.contains(openBuildData)) {
+        event.preventDefault();
+        openBuildDataView();
+        return;
+      }
+
+      const buildDataBack = event.target.closest("[data-build-data-back='true']");
+      if (buildDataBack && root.contains(buildDataBack)) {
+        event.preventDefault();
+        activeView = null;
+        contentScrollTop = 0;
+        render();
+        return;
+      }
+
       const reopenRun = event.target.closest("[data-reopen-run='true']");
       if (reopenRun && root.contains(reopenRun)) {
         event.preventDefault();
@@ -3643,6 +3749,64 @@
       return buildCatalog;
     }
 
+    async function fetchBrowseHeroList() {
+      try {
+        const response = await fetch("/api/builds/refresh/status", { cache: "no-store" });
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        const payload = await response.json();
+        browseHeroList = Array.isArray(payload?.catalogs)
+          ? payload.catalogs.map((c) => c.hero).filter(Boolean)
+          : [];
+      } catch (e) {
+        browseHeroList = [];
+      }
+    }
+
+    async function fetchBrowseCatalog(hero) {
+      if (!hero) return;
+      browseCatalogLoading = true;
+      browseCatalogError = "";
+      browseHero = hero;
+      render();
+      try {
+        const response = await fetch(`/api/builds/archetypes/${encodeURIComponent(hero)}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Build catalog request failed with status ${response.status}`);
+        const catalog = normalizeBuildCatalog(await response.json());
+        try {
+          const imagesResponse = await fetch(`/api/builds/items/${encodeURIComponent(hero)}`, { cache: "no-store" });
+          const imagesPayload = await imagesResponse.json().catch(() => ({}));
+          if (imagesPayload?.items && typeof imagesPayload.items === "object") {
+            catalog.itemImages = imagesPayload.items;
+          } else if (imagesResponse.ok && imagesPayload && typeof imagesPayload === "object" && !imagesPayload.error) {
+            catalog.itemImages = imagesPayload;
+          } else {
+            catalog.itemImages = {};
+          }
+        } catch (e) {
+          catalog.itemImages = {};
+        }
+        browseCatalog = catalog;
+        browseCatalogLoading = false;
+        browseCatalogError = "";
+      } catch (e) {
+        browseCatalogLoading = false;
+        browseCatalogError = e.message || "Unknown error loading catalog";
+      }
+      render();
+    }
+
+    async function openBuildDataView() {
+      activeView = "build-data";
+      render();
+      await fetchBrowseHeroList();
+      const defaultHero = (overlayState?.hero && String(overlayState.hero).trim()) || browseHeroList[0] || "";
+      browseHero = defaultHero;
+      render();
+      if (defaultHero) {
+        fetchBrowseCatalog(defaultHero);
+      }
+    }
+
     function toggleAssetPanel() {
       assetPanelOpen = !assetPanelOpen;
       render();
@@ -3725,6 +3889,7 @@
         overlayError = "";
         if (previousWasIdle && !nextIsIdle) {
           activeTab = "coach";
+          activeView = null;
           userPickedTab = false;
           contentScrollTop = 0;
         }
