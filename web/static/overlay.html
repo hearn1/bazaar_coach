@@ -2030,6 +2030,16 @@
       render();
     }
 
+    function closeManagementViewForLiveRun() {
+      activeView = null;
+      myBuildsFormOpen = false;
+      myBuildsFormData = null;
+      myBuildsDeleteConfirm = null;
+      myBuildsFormDraft = {};
+      myBuildsFormError = "";
+      contentScrollTop = 0;
+    }
+
     function dismissCompletedRun() {
       if (!isCompletedRun(overlayState)) return;
       localStorage.setItem(DISMISSED_RUN_KEY, String(overlayState.run_id));
@@ -4517,9 +4527,8 @@
         overlayError = "";
         if (previousWasIdle && !nextIsIdle) {
           activeTab = "coach";
-          activeView = null;
           userPickedTab = false;
-          contentScrollTop = 0;
+          closeManagementViewForLiveRun();
         }
         if (prevWasZero && !nextIsZero) {
           activeTab = "coach";
@@ -4579,7 +4588,10 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "F8") {
         event.preventDefault();
-        toggleCollapse();
+        event.stopPropagation();
+        if (!event.repeat) {
+          toggleCollapse();
+        }
       }
     });
 
