@@ -2425,7 +2425,6 @@
               ${renderHeaderStats(state)}
             </div>
             <div class="header-actions">
-              <button class="header-action" type="button" data-open-dashboard="true" title="Open dashboard to edit your build catalog">Edit Builds</button>
               <button class="header-action ${assetPanelOpen ? "active" : ""}" type="button" data-refresh-data="true" title="Refetch build catalogs and card content">Refresh Data</button>
               ${canEndActiveRun ? `<button class="header-action header-action-warn" type="button" data-end-run="true" title="Mark this run as force-ended (use if the game crashed mid-run)">End Run</button>` : ""}
               ${canLeaveCompletedRun ? `<button class="header-action" type="button" data-dismiss-run="true">Leave Run</button>` : ""}
@@ -3873,15 +3872,6 @@
       if (endRun && root.contains(endRun)) {
         event.preventDefault();
         endActiveRun();
-        return;
-      }
-
-      const openDashboard = event.target.closest("[data-open-dashboard='true']");
-      if (openDashboard && root.contains(openDashboard)) {
-        event.preventDefault();
-        try {
-          window.pywebview?.api?.open_dashboard?.("/my-builds");
-        } catch (e) { /* no-op */ }
         return;
       }
 

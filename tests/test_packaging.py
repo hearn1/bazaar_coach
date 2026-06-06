@@ -20,8 +20,8 @@ def test_web_static_folder_uses_bundled_asset_path():
 
     assert static_folder.name == "static"
     assert static_folder.parent.name == "web"
-    assert (static_folder / "index.html").is_file()
     assert (static_folder / "overlay.html").is_file()
+    assert not (static_folder / "index.html").exists()
 
 
 def test_overlay_coach_controls_use_persisted_delegated_handlers():

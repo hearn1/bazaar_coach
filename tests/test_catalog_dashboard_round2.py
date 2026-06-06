@@ -1,11 +1,6 @@
-from pathlib import Path
-
 import pytest
 
 import scorer
-
-
-HTML = Path(__file__).resolve().parents[1] / "web" / "static" / "index.html"
 
 
 @pytest.fixture(autouse=True)
@@ -47,23 +42,3 @@ def test_scorer_blank_hero_still_uses_default_catalog_filename():
     )
 
 
-def test_dashboard_refresh_messages_render_per_hero_result_messages():
-    html = HTML.read_text(encoding="utf-8")
-
-    assert "function buildPerHeroRefreshMessages(result)" in html
-    assert "result.results" in html
-    assert ".filter(r => r && r.message)" in html
-    assert "r.message" in html
-
-
-def test_dashboard_refresh_incompatible_schema_banner_copy():
-    html = HTML.read_text(encoding="utf-8")
-
-    assert "function incompatibleRefreshResults(result)" in html
-    assert "validation failed" in html
-    assert "schema_version" in html
-    assert "outside supported range" in html
-    assert (
-        "Refreshed catalog was skipped as incompatible; bundled catalog remains active."
-        in html
-    )

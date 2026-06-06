@@ -197,21 +197,6 @@ def _clean_archetype_label(archetype: Optional[str]) -> Optional[str]:
 
 # ── Routes — static ───────────────────────────────────────────────────────────
 
-@app.route("/")
-def index():
-    return _serve_html_with_token("index.html")
-
-
-@app.route("/builds")
-def builds_page():
-    return _serve_html_with_token("index.html")
-
-
-@app.route("/my-builds")
-def my_builds_page():
-    return _serve_html_with_token("index.html")
-
-
 @app.route("/overlay")
 def overlay_page():
     return _serve_html_with_token("overlay.html")
@@ -1204,15 +1189,15 @@ def start_web_server(port=DEFAULT_PORT, db_path=None, background=True, auto_refr
     if background:
         t = threading.Thread(target=lambda: _run_production_server(port), daemon=True, name="web-server")
         t.start()
-        print(f"[Web] Dashboard running at http://127.0.0.1:{port}")
+        print(f"[Web] Web API running at http://127.0.0.1:{port}; overlay at /overlay")
         return t
     else:
-        print(f"[Web] Dashboard running at http://127.0.0.1:{port}")
+        print(f"[Web] Web API running at http://127.0.0.1:{port}; overlay at /overlay")
         _run_production_server(port)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bazaar Coach Web Dashboard")
+    parser = argparse.ArgumentParser(description="Bazaar Coach Web API")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--db", type=str, default=None, help="Path to bazaar_runs.db")
     parser.add_argument("--no-refresh-builds", action="store_true",
