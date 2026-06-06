@@ -61,6 +61,16 @@ The dashboard includes a **Report an issue** button that opens a prefilled GitHu
 
 The implementation is in `web/report_issue.py`; the GitHub URL is constructed client-side and opened via the browser — the app itself makes no HTTP request.
 
+## Local data retention
+
+Bazaar Coach stores run history and low-level diagnostic capture data locally in the SQLite database.
+
+The **run-history retention** setting (`coach.db_retention_days` in `settings.json`) is opt-in and disabled by default (`0`). When set to a value ≥ 90, completed run-history records older than the threshold are deleted at startup, including rows in `runs`, `decisions`, and `combat_results`. Active and in-progress runs are never touched.
+
+Low-level captured API/Mono snapshot tables (`api_game_states`, `api_cards`, `api_player_attrs`, `api_messages`) are **not** deleted by this setting. They remain in the local database for diagnostics. They are not uploaded by Bazaar Coach. A future full diagnostic data purge feature may remove those tables separately.
+
+No data is sent to any remote service as part of the retention process.
+
 ## Third-party network connections
 
 Bazaar Coach does not embed analytics, telemetry, or crash reporting. No data is sent to Anthropic, any ad network, or any third party other than the `api.github.com` update check described above.

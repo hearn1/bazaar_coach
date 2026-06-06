@@ -131,7 +131,7 @@ The `decisions` table carries live scoring columns:
 - `board_snapshot_json` — frozen `BoardState` at this decision (overlay reads this directly)
 - `api_game_state_id` — link to the attached Mono snapshot, if any
 
-DB retention is opt-in: set `coach.db_retention_days` ≥ 90 in `settings.json` to prune completed runs older than that on startup. Default `0` disables pruning. In-progress runs are never touched.
+Run-history retention is opt-in: set `coach.db_retention_days` ≥ 90 in `settings.json` to prune completed run-history records (`runs`, `decisions`, `combat_results`) older than that threshold on startup. Default `0` disables pruning. In-progress runs (`ended_at IS NULL`) are never touched. Low-level `api_*` snapshot tables are intentionally not pruned by this path; a separate diagnostic data purge feature may cover those in a future release.
 
 ### Architecture
 
