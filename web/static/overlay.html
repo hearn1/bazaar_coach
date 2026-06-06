@@ -228,6 +228,47 @@
     .asset-status.status-skipped { color: #f59e0b; }
     .asset-status.status-failed { color: #f87171; }
 
+    .report-issue-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 0 4px;
+    }
+
+    .report-issue-form input,
+    .report-issue-form textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #e8e8e8;
+      font: 500 12px/1.4 var(--mono);
+      resize: none;
+    }
+
+    .report-issue-form input:focus,
+    .report-issue-form textarea:focus {
+      outline: none;
+      border-color: rgba(255,255,255,0.3);
+    }
+
+    .report-issue-form-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .report-issue-note {
+      margin-top: 4px;
+      font: 500 11px/1.4 var(--mono);
+      color: #9ca3af;
+    }
+
+    .report-issue-note.note-error { color: #f87171; }
+    .report-issue-note.note-url { color: #93c5fd; word-break: break-all; user-select: text; }
+
     .asset-catalog-list {
       margin-top: 6px;
       display: flex;
@@ -1637,6 +1678,10 @@
     let assetPanelOpen = false;
     let assetStatus = {};
     let assetPoll = null;
+    let reportIssueFormOpen = false;
+    let reportIssueTitle = "";
+    let reportIssueDesc = "";
+    let reportIssueNote = null;
 
     function loadCoachSectionCollapsed() {
       try {
@@ -2371,12 +2416,42 @@
       `;
     }
 
+    function renderReportIssueSection() {
+      const noteClass = reportIssueNote?.isError ? "report-issue-note note-error"
+        : reportIssueNote?.isUrl ? "report-issue-note note-url"
+        : "report-issue-note";
+      const noteHtml = reportIssueNote
+        ? `<div class="${noteClass}">${escapeHtml(reportIssueNote.text)}</div>` : "";
+      const formHtml = reportIssueFormOpen ? `
+        <div class="report-issue-form">
+          <input type="text" data-report-issue-title placeholder="Brief summary…" value="${escapeHtml(reportIssueTitle)}">
+          <textarea data-report-issue-desc rows="3" placeholder="What happened? Steps to reproduce?">${escapeHtml(reportIssueDesc)}</textarea>
+          ${noteHtml}
+          <div class="report-issue-form-actions">
+            <button class="header-action" type="button" data-report-issue-cancel="true">Cancel</button>
+            <button class="header-action" type="button" data-report-issue-submit="true">Open GitHub &amp; Attach Log</button>
+          </div>
+        </div>
+      ` : noteHtml;
+      return `
+        <div class="asset-row" style="flex-wrap:wrap;">
+          <div class="asset-row-main">
+            <div class="asset-row-label">Report an issue</div>
+            <div class="asset-status">File a prefilled GitHub issue with your session log.</div>
+          </div>
+          <button class="header-action" type="button" data-report-issue-toggle="true">${reportIssueFormOpen ? "Cancel" : "Report"}</button>
+          ${formHtml}
+        </div>
+      `;
+    }
+
     function renderAssetsPanel() {
       return `
         <section class="section asset-panel">
           <div class="section-kicker">Refresh data</div>
           <h3 class="section-title">Refetch local assets</h3>
           ${ASSET_KINDS.map(renderAssetRow).join("")}
+          ${renderReportIssueSection()}
         </section>
       `;
     }
@@ -3054,6 +3129,64 @@
       }
     }
 
+    function captureReportIssueFormValues() {
+      const titleEl = root.querySelector("[data-report-issue-title]");
+      if (titleEl) reportIssueTitle = titleEl.value;
+      const descEl = root.querySelector("[data-report-issue-desc]");
+      if (descEl) reportIssueDesc = descEl.value;
+    }
+
+    async function submitReportIssue() {
+      const titleEl = root.querySelector("[data-report-issue-title]");
+      const descEl = root.querySelector("[data-report-issue-desc]");
+      const title = titleEl ? titleEl.value : reportIssueTitle;
+      const description = descEl ? descEl.value : reportIssueDesc;
+
+      let issueUrl = null;
+      let logPath = null;
+      try {
+        const resp = await fetch("/api/report-issue/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ..._authHeaders() },
+          body: JSON.stringify({ title, description }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        issueUrl = data.issue_url;
+        logPath = data.log_path;
+      } catch (e) {
+        reportIssueNote = { text: "Could not build issue URL: " + e.message, isError: true };
+        render();
+        return;
+      }
+
+      const opened = typeof window.pywebview?.api?.open_external_url === "function"
+        ? window.pywebview.api.open_external_url(issueUrl)
+        : false;
+
+      if (!opened) {
+        reportIssueNote = { text: issueUrl, isUrl: true };
+        render();
+        return;
+      }
+
+      try {
+        await fetch("/api/report-issue/open-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ..._authHeaders() },
+          body: "{}",
+        });
+      } catch (_) { /* non-fatal */ }
+
+      reportIssueFormOpen = false;
+      reportIssueTitle = "";
+      reportIssueDesc = "";
+      reportIssueNote = logPath
+        ? { text: "GitHub issue opened. Drag the highlighted log file in and submit.", isError: false }
+        : { text: "GitHub issue opened. No log found — describe the problem manually.", isError: false };
+      render();
+    }
+
     function attachContentBehaviors() {
       const content = root.querySelector(".content");
       if (!content) return;
@@ -3108,6 +3241,7 @@
       }
 
       captureScrollPosition();
+      captureReportIssueFormValues();
       const idle = shouldShowIdleState(overlayState);
       root.innerHTML = `
         <div class="shell ${isCollapsed ? "collapsed" : ""}">
@@ -3133,6 +3267,15 @@
           cardSearchQuery = event.target.value;
           refreshCardSearchResults();
         });
+      }
+
+      const reportTitleEl = root.querySelector("[data-report-issue-title]");
+      if (reportTitleEl) {
+        reportTitleEl.addEventListener("input", (e) => { reportIssueTitle = e.target.value; });
+      }
+      const reportDescEl = root.querySelector("[data-report-issue-desc]");
+      if (reportDescEl) {
+        reportDescEl.addEventListener("input", (e) => { reportIssueDesc = e.target.value; });
       }
 
       const resizeGrip = root.querySelector("[data-resize-grip='true']");
@@ -3312,6 +3455,37 @@
       if (assetRefresh && root.contains(assetRefresh)) {
         event.preventDefault();
         refreshAsset(assetRefresh.dataset.assetRefresh);
+        return;
+      }
+
+      const reportToggle = event.target.closest("[data-report-issue-toggle='true']");
+      if (reportToggle && root.contains(reportToggle)) {
+        event.preventDefault();
+        reportIssueFormOpen = !reportIssueFormOpen;
+        if (!reportIssueFormOpen) {
+          reportIssueTitle = "";
+          reportIssueDesc = "";
+          reportIssueNote = null;
+        }
+        render();
+        return;
+      }
+
+      const reportCancel = event.target.closest("[data-report-issue-cancel='true']");
+      if (reportCancel && root.contains(reportCancel)) {
+        event.preventDefault();
+        reportIssueFormOpen = false;
+        reportIssueTitle = "";
+        reportIssueDesc = "";
+        reportIssueNote = null;
+        render();
+        return;
+      }
+
+      const reportSubmit = event.target.closest("[data-report-issue-submit='true']");
+      if (reportSubmit && root.contains(reportSubmit)) {
+        event.preventDefault();
+        submitReportIssue();
         return;
       }
 
