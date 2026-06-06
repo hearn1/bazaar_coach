@@ -37,3 +37,23 @@ def configure_stdio_backslashreplace() -> None:
             reconfigure(errors="backslashreplace")
         except (TypeError, ValueError):
             pass
+
+
+def configure_line_buffering() -> None:
+    """Configure stdout/stderr for line-buffered output in the capture worker.
+
+    PyInstaller frozen builds default to block-buffering, so status-bearing
+    prints (e.g. "Mono hooks active") can sit in the buffer and never reach
+    coach.py's stdout pump — causing the overlay indicator to stay grey even
+    when capture is working (issue #182). Forcing line-buffering means every
+    newline flushes immediately.
+    """
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(line_buffering=True)
+        except Exception:
+            pass
