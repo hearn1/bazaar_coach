@@ -1683,12 +1683,21 @@
     let reportIssueDesc = "";
     let reportIssueNote = null;
     let updateState = { status: null, loading: false, error: null };
-    let activeView = null; // "build-data" while browsing catalogs
+    let activeView = null; // "build-data" = browse, "my-builds" = edit user builds
     let browseCatalog = null;
     let browseHero = "";
     let browseCatalogLoading = false;
     let browseCatalogError = "";
     let browseHeroList = [];
+    let myBuildsHero = "";
+    let myBuildsData = null;
+    let myBuildsLoading = false;
+    let myBuildsError = "";
+    let myBuildsFormOpen = false;
+    let myBuildsFormData = null; // null = new archetype, object = editing
+    let myBuildsDeleteConfirm = null; // archetype name awaiting two-step confirm
+    let myBuildsFormDraft = {}; // form field values persisted across renders
+    let myBuildsFormError = "";
 
     function loadCoachSectionCollapsed() {
       try {
@@ -3129,6 +3138,158 @@
       `;
     }
 
+    function _mbArchetypes(data) {
+      const catalog = (data && data.catalog) || {};
+      const phases = catalog.game_phases || {};
+      const em = (phases.early_mid && phases.early_mid.archetypes) || [];
+      const late = (phases.late && phases.late.archetypes) || [];
+      return { early_mid: em, late };
+    }
+
+    function _mbIsUserProvenance(arch, data) {
+      const prov = (data && data.provenance) || {};
+      if (Array.isArray(prov.user_archetype_names)) {
+        return prov.user_archetype_names.includes(arch.name);
+      }
+      return prov.source === "user_builds" || prov.user_file_exists === true;
+    }
+
+    function renderMyBuildsView() {
+      const heroOptions = browseHeroList.length
+        ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === myBuildsHero ? " selected" : ""}>${escapeHtml(h.charAt(0).toUpperCase() + h.slice(1))}</option>`).join("")
+        : `<option value="${escapeHtml(myBuildsHero)}">${escapeHtml(myBuildsHero || "Loading…")}</option>`;
+
+      let contentHtml = "";
+      if (myBuildsLoading) {
+        contentHtml = `<section class="section"><div class="note">Loading…</div></section>`;
+      } else if (myBuildsError) {
+        contentHtml = `<section class="section"><div class="note" style="color:var(--red);">${escapeHtml(myBuildsError)}</div></section>`;
+      } else if (myBuildsData) {
+        const prov = (myBuildsData && myBuildsData.provenance) || {};
+        const enabled = prov.user_file_enabled !== false;
+        const { early_mid, late } = _mbArchetypes(myBuildsData);
+
+        const provRow = prov.user_file_exists
+          ? `<div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+               <span>${escapeHtml(prov.filename || "")}</span>
+               <button class="header-action" type="button" style="font-size:0.7rem;padding:2px 8px;" data-my-builds-toggle-enabled="${!enabled}">${enabled ? "Disable" : "Enable"}</button>
+             </div>`
+          : `<div style="font-size:0.75rem;color:var(--muted-2);margin-bottom:8px;">No user catalog yet. Add an archetype to create one.</div>`;
+
+        const archRow = (arch, phase) => {
+          const phaseLbl = phase === "early_mid" ? "Early Mid" : "Late";
+          const userBadge = _mbIsUserProvenance(arch, myBuildsData)
+            ? `<span style="font-size:0.65rem;padding:1px 5px;border-radius:3px;background:var(--green);color:#000;font-weight:700;white-space:nowrap;">user</span>`
+            : `<span style="font-size:0.65rem;padding:1px 5px;border-radius:3px;background:var(--muted-2);color:#000;font-weight:700;white-space:nowrap;">catalog</span>`;
+          const isDeleting = myBuildsDeleteConfirm === arch.name;
+          const archEditData = escapeHtml(JSON.stringify(Object.assign({}, arch, { _phase: phase })));
+          const deleteArea = isDeleting
+            ? `<span style="font-size:0.72rem;color:var(--red);">Delete?&nbsp;
+                 <button class="header-action" type="button" style="font-size:0.7rem;padding:2px 6px;" data-my-builds-delete-confirm="${escapeHtml(arch.name)}">Yes</button>
+                 &nbsp;<button class="header-action" type="button" style="font-size:0.7rem;padding:2px 6px;" data-my-builds-delete-cancel="true">No</button>
+               </span>`
+            : `<button class="header-action" type="button" style="font-size:0.7rem;padding:2px 6px;" data-my-builds-delete="${escapeHtml(arch.name)}">Delete</button>`;
+          return `<div style="border:1px solid var(--border);border-radius:4px;padding:8px 10px;margin-bottom:6px;background:var(--panel-2);">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap;">
+              <span style="font-weight:700;color:var(--text);font-size:0.85rem;">${escapeHtml(arch.name || "?")}</span>
+              ${userBadge}
+              <span style="font-size:0.65rem;padding:1px 5px;border-radius:3px;background:var(--panel-3);color:var(--muted);white-space:nowrap;">${escapeHtml(phaseLbl)}</span>
+              ${arch.timing_profile ? `<span style="font-size:0.65rem;padding:1px 5px;border-radius:3px;background:var(--panel-3);color:var(--muted);white-space:nowrap;">${escapeHtml(arch.timing_profile)}</span>` : ""}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <button class="header-action" type="button" style="font-size:0.7rem;padding:2px 6px;" data-my-builds-edit="${archEditData}">Edit</button>
+              ${deleteArea}
+            </div>
+          </div>`;
+        };
+
+        let archsHtml = "";
+        if (!early_mid.length && !late.length) {
+          archsHtml = `<div class="note">No archetypes yet. Click "+ Add Archetype" to create one.</div>`;
+        } else {
+          if (early_mid.length) {
+            archsHtml += `<div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--amber);margin:8px 0 4px;">Early Mid</div>`;
+            archsHtml += early_mid.map((a) => archRow(a, "early_mid")).join("");
+          }
+          if (late.length) {
+            archsHtml += `<div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--amber);margin:8px 0 4px;">Late</div>`;
+            archsHtml += late.map((a) => archRow(a, "late")).join("");
+          }
+        }
+
+        let formHtml = "";
+        if (myBuildsFormOpen) {
+          const d = myBuildsFormDraft;
+          const isNew = !myBuildsFormData;
+          const joinItems = (arr) => Array.isArray(arr) ? arr.join(", ") : (arr || "");
+          const timingOptions = ["", "tempo", "scaling", "exodia", "neutral"].map((t) =>
+            `<option value="${escapeHtml(t)}"${(d.timing_profile || "") === t ? " selected" : ""}>${escapeHtml(t || "(none)")}</option>`
+          ).join("");
+          const phaseOptions = ["early_mid", "late"].map((p) =>
+            `<option value="${escapeHtml(p)}"${(d._phase || "early_mid") === p ? " selected" : ""}>${p === "early_mid" ? "Early Mid" : "Late"}</option>`
+          ).join("");
+          const fieldStyle = "display:block;width:100%;margin-top:3px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:5px 8px;font-family:var(--body);font-size:0.8rem;box-sizing:border-box;";
+          formHtml = `
+            <div style="border:1px solid var(--border-strong);border-radius:4px;padding:12px;margin-top:10px;background:var(--panel-2);">
+              <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--amber);margin-bottom:10px;">${isNew ? "New Archetype" : "Edit Archetype"}</div>
+              <div style="display:grid;gap:8px;">
+                <label style="font-size:0.78rem;color:var(--muted);">Name *
+                  <input data-mbf-name type="text" value="${escapeHtml(d.name || "")}" style="${fieldStyle}">
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Phase *
+                  <select data-mbf-phase style="${fieldStyle}">${phaseOptions}</select>
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Core Items (comma-separated)
+                  <textarea data-mbf-core_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.core_items))}</textarea>
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Carry Items * (comma-separated)
+                  <textarea data-mbf-carry_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.carry_items))}</textarea>
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Support Items * (comma-separated)
+                  <textarea data-mbf-support_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.support_items))}</textarea>
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Condition Items (comma-separated)
+                  <textarea data-mbf-condition_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.condition_items))}</textarea>
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Timing Profile
+                  <select data-mbf-timing_profile style="${fieldStyle}">${timingOptions}</select>
+                </label>
+                <label style="font-size:0.78rem;color:var(--muted);">Notes
+                  <textarea data-mbf-notes rows="3" style="${fieldStyle}resize:vertical;">${escapeHtml(d.notes || "")}</textarea>
+                </label>
+              </div>
+              ${myBuildsFormError ? `<div style="color:var(--red);font-size:0.8rem;margin-top:6px;">${escapeHtml(myBuildsFormError)}</div>` : ""}
+              <div style="display:flex;gap:8px;margin-top:10px;">
+                <button class="header-action" type="button" data-my-builds-form-save="true">Save</button>
+                <button class="header-action" type="button" data-my-builds-form-cancel="true">Cancel</button>
+              </div>
+            </div>`;
+        }
+
+        contentHtml = `
+          <section class="section">
+            ${provRow}
+            ${archsHtml}
+            ${!myBuildsFormOpen ? `<button class="header-action" type="button" style="margin-top:8px;" data-my-builds-add="true">+ Add Archetype</button>` : ""}
+            ${formHtml}
+          </section>`;
+      }
+
+      return `
+        <section class="section hero-card">
+          <div class="section-kicker">My Builds</div>
+          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
+            <h2 class="hero-name" style="margin:0;">Edit Builds</h2>
+            <button class="header-action" type="button" data-my-builds-back="true">Back</button>
+          </div>
+          <select data-my-builds-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+            ${heroOptions}
+          </select>
+        </section>
+        ${contentHtml}
+      `;
+    }
+
     function renderIdleState(state) {
       const summaryState = state.is_active === false ? state : (lastCompletedState || state);
       const hasCompletedSummary = Boolean(
@@ -3183,7 +3344,10 @@
         <section class="section">
           <div class="section-kicker">Manage</div>
           <h3 class="section-title">Tools</h3>
-          <button class="header-action" type="button" data-open-build-data="true">Browse Builds</button>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button class="header-action" type="button" data-open-build-data="true">Browse Builds</button>
+            <button class="header-action" type="button" data-open-my-builds="true">My Builds</button>
+          </div>
         </section>
       `;
     }
@@ -3193,6 +3357,9 @@
       if (shouldShowIdleState(state)) {
         if (activeView === "build-data") {
           return `${itemAlert}${renderBuildDataView()}`;
+        }
+        if (activeView === "my-builds") {
+          return `${itemAlert}${renderMyBuildsView()}`;
         }
         return `${itemAlert}${renderIdleState(state)}`;
       }
@@ -3264,6 +3431,26 @@
       if (titleEl) reportIssueTitle = titleEl.value;
       const descEl = root.querySelector("[data-report-issue-desc]");
       if (descEl) reportIssueDesc = descEl.value;
+    }
+
+    function captureMyBuildsFormValues() {
+      if (!myBuildsFormOpen) return;
+      const nameEl = root.querySelector("[data-mbf-name]");
+      if (nameEl) myBuildsFormDraft.name = nameEl.value;
+      const phaseEl = root.querySelector("[data-mbf-phase]");
+      if (phaseEl) myBuildsFormDraft._phase = phaseEl.value;
+      const carryEl = root.querySelector("[data-mbf-carry_items]");
+      if (carryEl) myBuildsFormDraft.carry_items = carryEl.value;
+      const supportEl = root.querySelector("[data-mbf-support_items]");
+      if (supportEl) myBuildsFormDraft.support_items = supportEl.value;
+      const coreEl = root.querySelector("[data-mbf-core_items]");
+      if (coreEl) myBuildsFormDraft.core_items = coreEl.value;
+      const condEl = root.querySelector("[data-mbf-condition_items]");
+      if (condEl) myBuildsFormDraft.condition_items = condEl.value;
+      const timingEl = root.querySelector("[data-mbf-timing_profile]");
+      if (timingEl) myBuildsFormDraft.timing_profile = timingEl.value;
+      const notesEl = root.querySelector("[data-mbf-notes]");
+      if (notesEl) myBuildsFormDraft.notes = notesEl.value;
     }
 
     async function submitReportIssue() {
@@ -3372,6 +3559,7 @@
 
       captureScrollPosition();
       captureReportIssueFormValues();
+      captureMyBuildsFormValues();
       const idle = shouldShowIdleState(overlayState);
       root.innerHTML = `
         <div class="shell ${isCollapsed ? "collapsed" : ""}">
@@ -3417,6 +3605,13 @@
       if (browseHeroSelect) {
         browseHeroSelect.addEventListener("change", (e) => {
           fetchBrowseCatalog(e.target.value);
+        });
+      }
+
+      const myBuildsHeroSelect = root.querySelector("[data-my-builds-hero-select]");
+      if (myBuildsHeroSelect) {
+        myBuildsHeroSelect.addEventListener("change", (e) => {
+          loadMyBuildsData(e.target.value);
         });
       }
 
@@ -3633,6 +3828,113 @@
         return;
       }
 
+      const openMyBuilds = event.target.closest("[data-open-my-builds='true']");
+      if (openMyBuilds && root.contains(openMyBuilds)) {
+        event.preventDefault();
+        openMyBuildsView();
+        return;
+      }
+
+      const myBuildsBack = event.target.closest("[data-my-builds-back='true']");
+      if (myBuildsBack && root.contains(myBuildsBack)) {
+        event.preventDefault();
+        activeView = null;
+        myBuildsFormOpen = false;
+        myBuildsFormData = null;
+        myBuildsDeleteConfirm = null;
+        myBuildsFormDraft = {};
+        myBuildsFormError = "";
+        contentScrollTop = 0;
+        render();
+        return;
+      }
+
+      const myBuildsAdd = event.target.closest("[data-my-builds-add='true']");
+      if (myBuildsAdd && root.contains(myBuildsAdd)) {
+        event.preventDefault();
+        myBuildsFormOpen = true;
+        myBuildsFormData = null;
+        myBuildsFormDraft = { _phase: "early_mid" };
+        myBuildsFormError = "";
+        myBuildsDeleteConfirm = null;
+        render();
+        return;
+      }
+
+      const myBuildsEdit = event.target.closest("[data-my-builds-edit]");
+      if (myBuildsEdit && root.contains(myBuildsEdit)) {
+        event.preventDefault();
+        try {
+          const a = JSON.parse(myBuildsEdit.dataset.myBuildsEdit);
+          const joinItems = (arr) => Array.isArray(arr) ? arr.join(", ") : (arr || "");
+          myBuildsFormData = a;
+          myBuildsFormDraft = {
+            name: a.name || "",
+            _phase: a._phase || a.phase || "early_mid",
+            carry_items: joinItems(a.carry_items),
+            support_items: joinItems(a.support_items),
+            core_items: joinItems(a.core_items),
+            condition_items: joinItems(a.condition_items),
+            timing_profile: a.timing_profile || "",
+            notes: a.notes || "",
+          };
+          myBuildsFormOpen = true;
+          myBuildsFormError = "";
+          myBuildsDeleteConfirm = null;
+        } catch (e) { /* ignore parse error */ }
+        render();
+        return;
+      }
+
+      const myBuildsFormCancel = event.target.closest("[data-my-builds-form-cancel='true']");
+      if (myBuildsFormCancel && root.contains(myBuildsFormCancel)) {
+        event.preventDefault();
+        myBuildsFormOpen = false;
+        myBuildsFormData = null;
+        myBuildsFormDraft = {};
+        myBuildsFormError = "";
+        render();
+        return;
+      }
+
+      const myBuildsFormSave = event.target.closest("[data-my-builds-form-save='true']");
+      if (myBuildsFormSave && root.contains(myBuildsFormSave)) {
+        event.preventDefault();
+        captureMyBuildsFormValues();
+        submitMyBuildsFormData();
+        return;
+      }
+
+      const myBuildsDelete = event.target.closest("[data-my-builds-delete]");
+      if (myBuildsDelete && root.contains(myBuildsDelete)) {
+        event.preventDefault();
+        myBuildsDeleteConfirm = myBuildsDelete.dataset.myBuildsDelete;
+        render();
+        return;
+      }
+
+      const myBuildsDeleteConfirmBtn = event.target.closest("[data-my-builds-delete-confirm]");
+      if (myBuildsDeleteConfirmBtn && root.contains(myBuildsDeleteConfirmBtn)) {
+        event.preventDefault();
+        deleteMyBuildsArchetypeConfirmed(myBuildsDeleteConfirmBtn.dataset.myBuildsDeleteConfirm);
+        return;
+      }
+
+      const myBuildsDeleteCancel = event.target.closest("[data-my-builds-delete-cancel='true']");
+      if (myBuildsDeleteCancel && root.contains(myBuildsDeleteCancel)) {
+        event.preventDefault();
+        myBuildsDeleteConfirm = null;
+        render();
+        return;
+      }
+
+      const myBuildsToggle = event.target.closest("[data-my-builds-toggle-enabled]");
+      if (myBuildsToggle && root.contains(myBuildsToggle)) {
+        event.preventDefault();
+        toggleMyBuildsEnabledState(myBuildsToggle.dataset.myBuildsToggleEnabled === "true");
+        return;
+      }
+
       const openBuildData = event.target.closest("[data-open-build-data='true']");
       if (openBuildData && root.contains(openBuildData)) {
         event.preventDefault();
@@ -3793,6 +4095,129 @@
         browseCatalogError = e.message || "Unknown error loading catalog";
       }
       render();
+    }
+
+    async function openMyBuildsView() {
+      myBuildsFormOpen = false;
+      myBuildsFormData = null;
+      myBuildsDeleteConfirm = null;
+      myBuildsFormDraft = {};
+      myBuildsFormError = "";
+      activeView = "my-builds";
+      render();
+      await fetchBrowseHeroList();
+      if (!myBuildsHero) {
+        myBuildsHero = (overlayState?.hero && String(overlayState.hero).trim()) || browseHeroList[0] || "";
+      }
+      render();
+      if (myBuildsHero) {
+        await loadMyBuildsData(myBuildsHero);
+      }
+    }
+
+    async function loadMyBuildsData(hero) {
+      if (!hero) return;
+      myBuildsHero = hero;
+      myBuildsLoading = true;
+      myBuildsError = "";
+      render();
+      try {
+        const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}`, { cache: "no-store" });
+        if (!resp.ok) throw new Error(`status ${resp.status}`);
+        myBuildsData = await resp.json();
+        myBuildsLoading = false;
+      } catch (e) {
+        myBuildsLoading = false;
+        myBuildsError = e.message || "Failed to load user builds";
+      }
+      render();
+    }
+
+    function _mbSplitItems(str) {
+      return String(str || "").split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    async function submitMyBuildsFormData() {
+      myBuildsFormError = "";
+      const name = String(myBuildsFormDraft.name || "").trim();
+      const phase = myBuildsFormDraft._phase || "";
+      const carry_items = _mbSplitItems(myBuildsFormDraft.carry_items);
+      const support_items = _mbSplitItems(myBuildsFormDraft.support_items);
+
+      if (!name) { myBuildsFormError = "Name is required."; render(); return; }
+      if (!phase) { myBuildsFormError = "Phase is required."; render(); return; }
+      if (!carry_items.length) { myBuildsFormError = "Carry items are required."; render(); return; }
+      if (!support_items.length) { myBuildsFormError = "Support items are required."; render(); return; }
+
+      const archetype = { name, phase, carry_items, support_items,
+        core_items: _mbSplitItems(myBuildsFormDraft.core_items),
+        condition_items: _mbSplitItems(myBuildsFormDraft.condition_items),
+      };
+      const timing = myBuildsFormDraft.timing_profile || "";
+      if (timing) archetype.timing_profile = timing;
+      const notes = String(myBuildsFormDraft.notes || "").trim();
+      if (notes) archetype.notes = notes;
+
+      try {
+        const resp = await fetch(`/api/builds/user/${encodeURIComponent(myBuildsHero)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ..._authHeaders() },
+          body: JSON.stringify({ archetype }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          myBuildsFormError = Array.isArray(data.errors) && data.errors.length ? data.errors.join("; ") : `Error ${resp.status}`;
+          render();
+          return;
+        }
+        myBuildsData = data;
+        myBuildsFormOpen = false;
+        myBuildsFormData = null;
+        myBuildsFormDraft = {};
+        myBuildsFormError = "";
+        render();
+      } catch (e) {
+        myBuildsFormError = `Save failed: ${e.message}`;
+        render();
+      }
+    }
+
+    async function deleteMyBuildsArchetypeConfirmed(name) {
+      myBuildsDeleteConfirm = null;
+      myBuildsError = "";
+      try {
+        const resp = await fetch(`/api/builds/user/${encodeURIComponent(myBuildsHero)}/${encodeURIComponent(name)}`, {
+          method: "DELETE",
+          headers: _authHeaders(),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          myBuildsError = `Delete failed: ${Array.isArray(data.errors) ? data.errors.join("; ") : resp.status}`;
+          render();
+          return;
+        }
+        myBuildsData = data;
+        render();
+      } catch (e) {
+        myBuildsError = `Delete failed: ${e.message}`;
+        render();
+      }
+    }
+
+    async function toggleMyBuildsEnabledState(enabled) {
+      const action = enabled ? "enable" : "disable";
+      myBuildsError = "";
+      try {
+        const resp = await fetch(`/api/builds/user/${encodeURIComponent(myBuildsHero)}/${action}`, {
+          method: "POST",
+          headers: _authHeaders(),
+        });
+        if (!resp.ok) throw new Error(`status ${resp.status}`);
+        await loadMyBuildsData(myBuildsHero);
+      } catch (e) {
+        myBuildsError = `Toggle failed: ${e.message}`;
+        render();
+      }
     }
 
     async function openBuildDataView() {
