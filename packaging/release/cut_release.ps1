@@ -221,6 +221,16 @@ try {
         Write-Host "[Release] Edit this file in the GitHub UI after the draft is created."
     }
 
+    # 10b. SHA-256 checksums.
+    $sumsPath = Join-Path $NotesDir "SHA256SUMS-$BuiltVersion.txt"
+    Write-Host "[Release] Computing SHA-256 checksums..."
+    Get-FileHash -Algorithm SHA256 $ZipPath, $InstallerExe |
+        ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+        Set-Content -Path $sumsPath -Encoding ascii
+    Write-Host "[Release] Checksums written: $sumsPath"
+    $sumsLines = (Get-Content $sumsPath -Raw).TrimEnd()
+    Add-Content -Path $NotesPath -Value "`n## Checksums`n``````text`n$sumsLines`n```````n" -Encoding UTF8
+
     # 11. Tag + push + publish.
     if ($DryRun) {
         Write-Host ""
@@ -229,11 +239,12 @@ try {
         Write-Host "  git push origin main"
         Write-Host "  git push origin $Tag"
         $publishFlag = if ($Publish) { "" } else { " --draft" }
-        Write-Host "  gh release create $Tag --title 'Bazaar Coach $Version' --notes-file $NotesPath --prerelease$publishFlag $ZipPath $InstallerExe"
+        Write-Host "  gh release create $Tag --title 'Bazaar Coach $Version' --notes-file $NotesPath --prerelease$publishFlag $ZipPath $InstallerExe $sumsPath"
         Write-Host ""
         Write-Host "[Release] DRY RUN complete. Artifacts at:"
         Write-Host "  $ZipPath"
         Write-Host "  $InstallerExe"
+        Write-Host "  $sumsPath"
         Write-Host "  $NotesPath"
         return
     }
@@ -257,6 +268,7 @@ try {
     if (-not $Publish) { $ghArgs += "--draft" }
     $ghArgs += $ZipPath
     $ghArgs += $InstallerExe
+    $ghArgs += $sumsPath
 
     & gh @ghArgs
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE" }
