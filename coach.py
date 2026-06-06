@@ -491,7 +491,7 @@ def main():
             # PyWebView must own the main thread; let the overlay block it for
             # the life of the process.  The Mono subprocess pumps events in the
             # background via its own daemon thread.
-            overlay.launch_overlay(port=DEFAULT_WEB_PORT)
+            overlay.launch_overlay(port=DEFAULT_WEB_PORT, api_token=_api_token)
         else:
             # Headless mode: main thread waits for shutdown signal
             shutdown_event.wait()
