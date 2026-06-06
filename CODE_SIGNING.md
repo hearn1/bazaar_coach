@@ -1,27 +1,41 @@
 # Code-Signing Policy
 
-## Signing provider
+## Current alpha status
 
-Windows releases of Bazaar Coach are signed via **[SignPath.io](https://signpath.io)** using a certificate issued by the **SignPath Foundation** under its Open-Source Software code-signing program.
+Bazaar Coach alpha builds are currently unsigned unless the specific GitHub Release asset shows a valid Windows digital signature. Unsigned alpha builds may trigger Windows SmartScreen or antivirus warnings — see [packaging/installer/README.md](packaging/installer/README.md) for what to expect and how to add exclusions.
+
+## Planned signing provider
+
+Windows releases are planned to be signed via **[SignPath.io](https://signpath.io)** using a certificate issued by the **SignPath Foundation** under its Open-Source Software code-signing program, once the onboarding and application approval process is complete.
 
 <!-- TODO: SignPath attribution per onboarding -->
 <!-- Insert the exact attribution text, badge, or logo supplied by SignPath during
      the onboarding process here. Do not publish this section until onboarding is
      complete and the attribution requirements are confirmed. -->
 
-The CI build pipeline (`.github/workflows/release-build.yml`) builds the installer and portable zip on `windows-latest`. A SignPath signing step is reserved in that workflow (see the `# --- SignPath slot-in (issue #154) ---` comment) and will be enabled once the SignPath Foundation application is approved.
+The CI build pipeline (`.github/workflows/release-build.yml`) has a SignPath signing slot reserved between the installer build and artifact upload steps (see the `# --- SignPath slot-in (issue #154) ---` comment). It will be enabled once the SignPath Foundation application is approved.
 
-## Team and roles
+## Team and roles (planned)
 
-Signing requests follow the SignPath model of Author / Reviewer / Approver roles:
+Signing requests will follow the SignPath model of Author / Reviewer / Approver roles:
 
 | Person | Role(s) |
 |--------|---------|
 | Matthew Hearn ([@hearn1](https://github.com/hearn1)) | Author, Reviewer, Approver |
 
-Signing requests require **manual per-release approval**. No signing is triggered automatically without an explicit approval action from an Approver.
+Signing requests will require **manual per-release approval**. No signing will be triggered automatically without an explicit approval action from an Approver.
 
-## How to verify a signature
+## Verify checksums (all releases)
+
+Each GitHub Release at <https://github.com/hearn1/bazaar_coach/releases> publishes SHA-256 checksums for the installer and portable zip. Compare the checksum of the file you downloaded against the published value before running it:
+
+```powershell
+(Get-FileHash BazaarCoachSetup-<version>.exe -Algorithm SHA256).Hash
+```
+
+## How to verify a signature (signed releases only)
+
+Use this section only for release assets that carry a valid Windows digital signature.
 
 ### Windows file Properties
 
@@ -36,11 +50,3 @@ signtool verify /pa /v BazaarCoachSetup-<version>.exe
 ```
 
 A valid signed build outputs `Successfully verified: BazaarCoachSetup-<version>.exe`. An unsigned alpha build returns a verification error — that is expected until signing is live.
-
-### Cross-reference published checksums
-
-Each GitHub Release at <https://github.com/hearn1/bazaar_coach/releases> publishes SHA-256 checksums for the installer and portable zip. Compare the checksum of the file you downloaded against the published value before running it:
-
-```powershell
-(Get-FileHash BazaarCoachSetup-<version>.exe -Algorithm SHA256).Hash
-```
