@@ -1062,6 +1062,17 @@ def api_report_issue_open_logs():
     return jsonify({"ok": True, "log_path": None})
 
 
+@app.route("/api/report-issue/log-preview", methods=["POST"])
+def api_report_issue_log_preview():
+    """Return a sanitized preview of the latest coach log for upload confirmation."""
+    from web.report_log_safety import prepare_log_for_upload, summarize_prepared_log
+    try:
+        prepared = prepare_log_for_upload()
+        return jsonify(summarize_prepared_log(prepared))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 # ── Routes — control ──────────────────────────────────────────────────────────
 
 @app.route("/api/control/shutdown", methods=["POST"])
