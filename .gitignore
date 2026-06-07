@@ -31,6 +31,7 @@ logs/
 static_cache/
 bazaar_runs.db*
 settings.json
+github_credentials.json
 sqlite3.Connection
 
 # Diagnostics and smoke-test artifacts

@@ -1073,6 +1073,40 @@ def api_report_issue_log_preview():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+# ── Routes — GitHub OAuth ──────────────────────────────────────────────────────
+
+@app.route("/api/oauth/status", methods=["GET"])
+def api_oauth_status():
+    """
+    Return the current GitHub auth state.
+
+    Does NOT include the access token. Response shape:
+      ok, auth_state, login, scopes, can_one_click_file, needs_reauth,
+      message, manual_issue_url
+    """
+    from github_oauth import get_auth_status
+    try:
+        force = request.args.get("force", "").lower() in ("1", "true")
+        return jsonify(get_auth_status(force_revalidate=force))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/oauth/sign-out", methods=["POST"])
+def api_oauth_sign_out():
+    """
+    Sign out locally: clear stored token, in-memory cache, and device-flow state.
+
+    Idempotent — safe to call when already signed out.
+    Does NOT revoke the token on GitHub (no safe no-secret path for Device Flow apps).
+    """
+    from github_oauth import sign_out
+    try:
+        return jsonify(sign_out())
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 # ── Routes — control ──────────────────────────────────────────────────────────
 
 @app.route("/api/control/shutdown", methods=["POST"])
