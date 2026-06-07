@@ -1747,6 +1747,11 @@
     let myBuildsDeleteConfirm = null; // archetype name awaiting two-step confirm
     let myBuildsFormDraft = {}; // form field values persisted across renders
     let myBuildsFormError = "";
+    const MANAGEMENT_TOOLS = [
+      { label: "Run History", view: "history" },
+      { label: "Browse Builds", view: "build-data" },
+      { label: "My Builds", view: "my-builds" },
+    ];
 
     function loadCoachSectionCollapsed() {
       try {
@@ -2038,6 +2043,23 @@
       myBuildsFormDraft = {};
       myBuildsFormError = "";
       contentScrollTop = 0;
+    }
+
+    function openManagementView(viewName) {
+      activeView = viewName;
+      contentScrollTop = 0;
+      render();
+    }
+
+    function closeManagementView() {
+      activeView = null;
+      myBuildsFormOpen = false;
+      myBuildsFormData = null;
+      myBuildsDeleteConfirm = null;
+      myBuildsFormDraft = {};
+      myBuildsFormError = "";
+      contentScrollTop = 0;
+      render();
     }
 
     function dismissCompletedRun() {
@@ -3153,6 +3175,39 @@
       `;
     }
 
+    function renderManagementHeader({ kicker, title, extra = "" }) {
+      return `
+        <section class="section hero-card">
+          <div class="section-kicker">${escapeHtml(kicker)}</div>
+          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
+            <h2 class="hero-name" style="margin:0;">${escapeHtml(title)}</h2>
+            <button class="header-action" type="button" data-management-back="true" data-focus-key="management-back">Back</button>
+          </div>
+          ${extra}
+        </section>
+      `;
+    }
+
+    function renderManagementNote(html, { color = "" } = {}) {
+      const style = color ? ` style="color:${color};"` : "";
+      return `<section class="section"><div class="note"${style}>${html}</div></section>`;
+    }
+
+    function renderManagementLoading(message = "Loading…") {
+      return renderManagementNote(escapeHtml(message));
+    }
+
+    function renderManagementError(message) {
+      return renderManagementNote(escapeHtml(message), { color: "var(--red)" });
+    }
+
+    function renderManagementView() {
+      if (activeView === "build-data") return renderBuildDataView();
+      if (activeView === "my-builds") return renderMyBuildsView();
+      if (activeView === "history") return renderHistoryView();
+      return null;
+    }
+
     function renderHistoryView() {
       let listHtml = "";
       if (historyState.runsLoading) {
@@ -3195,13 +3250,7 @@
         : "";
 
       return `
-        <section class="section hero-card">
-          <div class="section-kicker">Browse</div>
-          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
-            <h2 class="hero-name" style="margin:0;">Run History</h2>
-            <button class="header-action" type="button" data-history-back="true" data-focus-key="history-back">Back</button>
-          </div>
-        </section>
+        ${renderManagementHeader({ kicker: "Browse", title: "Run History" })}
         <section class="section">
           <div class="history-run-list">${listHtml}</div>
         </section>
@@ -3213,16 +3262,17 @@
       const heroOptions = browseHeroList.length
         ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === browseHero ? " selected" : ""}>${escapeHtml(h)}</option>`).join("")
         : `<option value="${escapeHtml(browseHero)}">${escapeHtml(browseHero || "Loading…")}</option>`;
+      const heroSelect = `<select data-browse-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">${heroOptions}</select>`;
 
       let catalogHtml = "";
       if (browseCatalogLoading) {
-        catalogHtml = `<section class="section"><div class="note">Loading catalog…</div></section>`;
+        catalogHtml = renderManagementLoading("Loading catalog…");
       } else if (browseCatalogError) {
-        catalogHtml = `<section class="section"><div class="note">${escapeHtml(browseCatalogError)}</div></section>`;
+        catalogHtml = renderManagementNote(escapeHtml(browseCatalogError));
       } else if (browseCatalog) {
         const itemImages = browseCatalog.itemImages || {};
         if (!browseCatalog.archetypes.length) {
-          catalogHtml = `<section class="section"><div class="note">No archetypes found for ${escapeHtml(browseHero)}.</div></section>`;
+          catalogHtml = renderManagementNote(`No archetypes found for ${escapeHtml(browseHero)}.`);
         } else {
           catalogHtml = browseCatalog.archetypes.map((arch) => `
             <section class="section">
@@ -3238,16 +3288,7 @@
       }
 
       return `
-        <section class="section hero-card">
-          <div class="section-kicker">Browse</div>
-          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
-            <h2 class="hero-name" style="margin:0;">Build Catalog</h2>
-            <button class="header-action" type="button" data-build-data-back="true" data-focus-key="build-data-back">Back</button>
-          </div>
-          <select data-browse-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">
-            ${heroOptions}
-          </select>
-        </section>
+        ${renderManagementHeader({ kicker: "Browse", title: "Build Catalog", extra: heroSelect })}
         ${catalogHtml}
       `;
     }
@@ -3272,12 +3313,13 @@
       const heroOptions = browseHeroList.length
         ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === myBuildsHero ? " selected" : ""}>${escapeHtml(h.charAt(0).toUpperCase() + h.slice(1))}</option>`).join("")
         : `<option value="${escapeHtml(myBuildsHero)}">${escapeHtml(myBuildsHero || "Loading…")}</option>`;
+      const heroSelect = `<select data-my-builds-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">${heroOptions}</select>`;
 
       let contentHtml = "";
       if (myBuildsLoading) {
-        contentHtml = `<section class="section"><div class="note">Loading…</div></section>`;
+        contentHtml = renderManagementLoading();
       } else if (myBuildsError) {
-        contentHtml = `<section class="section"><div class="note" style="color:var(--red);">${escapeHtml(myBuildsError)}</div></section>`;
+        contentHtml = renderManagementError(myBuildsError);
       } else if (myBuildsData) {
         const prov = (myBuildsData && myBuildsData.provenance) || {};
         const enabled = prov.user_file_enabled !== false;
@@ -3390,16 +3432,7 @@
       }
 
       return `
-        <section class="section hero-card">
-          <div class="section-kicker">My Builds</div>
-          <div class="hero-row" style="align-items:center;margin-bottom:10px;">
-            <h2 class="hero-name" style="margin:0;">Edit Builds</h2>
-            <button class="header-action" type="button" data-my-builds-back="true" data-focus-key="my-builds-back">Back</button>
-          </div>
-          <select data-my-builds-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">
-            ${heroOptions}
-          </select>
-        </section>
+        ${renderManagementHeader({ kicker: "My Builds", title: "Edit Builds", extra: heroSelect })}
         ${contentHtml}
       `;
     }
@@ -3459,9 +3492,7 @@
           <div class="section-kicker">Manage</div>
           <h3 class="section-title">Tools</h3>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            <button class="header-action" type="button" data-open-history="true">Run History</button>
-            <button class="header-action" type="button" data-open-build-data="true">Browse Builds</button>
-            <button class="header-action" type="button" data-open-my-builds="true">My Builds</button>
+            ${MANAGEMENT_TOOLS.map((t) => `<button class="header-action" type="button" data-open-management="${escapeHtml(t.view)}">${escapeHtml(t.label)}</button>`).join("\n            ")}
           </div>
         </section>
       `;
@@ -3470,15 +3501,8 @@
     function renderActivePane(state) {
       const itemAlert = renderItemImagesAlert();
       if (shouldShowIdleState(state)) {
-        if (activeView === "build-data") {
-          return `${itemAlert}${renderBuildDataView()}`;
-        }
-        if (activeView === "my-builds") {
-          return `${itemAlert}${renderMyBuildsView()}`;
-        }
-        if (activeView === "history") {
-          return `${itemAlert}${renderHistoryView()}`;
-        }
+        const managementHtml = renderManagementView();
+        if (managementHtml) return `${itemAlert}${managementHtml}`;
         return `${itemAlert}${renderIdleState(state)}`;
       }
       if (activeTab === "review") {
@@ -4023,24 +4047,20 @@
         return;
       }
 
-      const openMyBuilds = event.target.closest("[data-open-my-builds='true']");
-      if (openMyBuilds && root.contains(openMyBuilds)) {
+      const managementBack = event.target.closest("[data-management-back='true']");
+      if (managementBack && root.contains(managementBack)) {
         event.preventDefault();
-        openMyBuildsView();
+        closeManagementView();
         return;
       }
 
-      const myBuildsBack = event.target.closest("[data-my-builds-back='true']");
-      if (myBuildsBack && root.contains(myBuildsBack)) {
+      const openManagement = event.target.closest("[data-open-management]");
+      if (openManagement && root.contains(openManagement)) {
         event.preventDefault();
-        activeView = null;
-        myBuildsFormOpen = false;
-        myBuildsFormData = null;
-        myBuildsDeleteConfirm = null;
-        myBuildsFormDraft = {};
-        myBuildsFormError = "";
-        contentScrollTop = 0;
-        render();
+        const view = openManagement.dataset.openManagement;
+        if (view === "history") openHistoryView();
+        else if (view === "build-data") openBuildDataView();
+        else if (view === "my-builds") openMyBuildsView();
         return;
       }
 
@@ -4127,38 +4147,6 @@
       if (myBuildsToggle && root.contains(myBuildsToggle)) {
         event.preventDefault();
         toggleMyBuildsEnabledState(myBuildsToggle.dataset.myBuildsToggleEnabled === "true");
-        return;
-      }
-
-      const openBuildData = event.target.closest("[data-open-build-data='true']");
-      if (openBuildData && root.contains(openBuildData)) {
-        event.preventDefault();
-        openBuildDataView();
-        return;
-      }
-
-      const buildDataBack = event.target.closest("[data-build-data-back='true']");
-      if (buildDataBack && root.contains(buildDataBack)) {
-        event.preventDefault();
-        activeView = null;
-        contentScrollTop = 0;
-        render();
-        return;
-      }
-
-      const openHistory = event.target.closest("[data-open-history='true']");
-      if (openHistory && root.contains(openHistory)) {
-        event.preventDefault();
-        openHistoryView();
-        return;
-      }
-
-      const historyBack = event.target.closest("[data-history-back='true']");
-      if (historyBack && root.contains(historyBack)) {
-        event.preventDefault();
-        activeView = null;
-        contentScrollTop = 0;
-        render();
         return;
       }
 
@@ -4325,8 +4313,7 @@
       myBuildsDeleteConfirm = null;
       myBuildsFormDraft = {};
       myBuildsFormError = "";
-      activeView = "my-builds";
-      render();
+      openManagementView("my-builds");
       await fetchBrowseHeroList();
       if (!myBuildsHero) {
         myBuildsHero = (overlayState?.hero && String(overlayState.hero).trim()) || browseHeroList[0] || "";
@@ -4443,8 +4430,7 @@
     }
 
     async function openBuildDataView() {
-      activeView = "build-data";
-      render();
+      openManagementView("build-data");
       await fetchBrowseHeroList();
       const defaultHero = (overlayState?.hero && String(overlayState.hero).trim()) || browseHeroList[0] || "";
       browseHero = defaultHero;
@@ -4456,8 +4442,7 @@
 
     async function openHistoryView() {
       historyState = { runs: [], runsLoading: false, runsError: null, selectedRunId: null };
-      activeView = "history";
-      render();
+      openManagementView("history");
       await loadHistoryRuns();
     }
 
