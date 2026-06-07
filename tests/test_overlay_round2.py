@@ -252,3 +252,134 @@ def test_build_overlay_review_rows_skip_primary_text_is_missed_item():
     assert not any("Hunter's Boots" == t for t in titles), (
         f"'Hunter's Boots' must not appear as a review_title; got titles: {titles}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #225: overlay management-view keyboard/focus regression pass
+# ---------------------------------------------------------------------------
+
+def _overlay_src():
+    from pathlib import Path
+    import app_paths
+    return (app_paths.repo_dir() / "web" / "static" / "overlay.html").read_text(encoding="utf-8")
+
+
+def test_overlay_defines_text_editing_target_helper():
+    overlay = _overlay_src()
+    assert "function isTextEditingTarget(" in overlay
+    assert "isContentEditable" in overlay
+
+
+def test_overlay_defines_keyboard_activation_helper():
+    overlay = _overlay_src()
+    assert "function isKeyboardActivation(" in overlay
+    assert '"Enter"' in overlay
+    assert '" "' in overlay or "' '" in overlay
+
+
+def test_overlay_render_captures_focus_state_before_dom_replacement():
+    src = _overlay_src()
+    render_start = src.find("function render()")
+    assert render_start != -1
+    render_body = src[render_start:]
+    capture_pos = render_body.find("captureFocusState()")
+    inner_pos = render_body.find("root.innerHTML")
+    assert capture_pos != -1, "captureFocusState() call not found in render()"
+    assert inner_pos != -1, "root.innerHTML not found in render()"
+    assert capture_pos < inner_pos, "captureFocusState() must be called before root.innerHTML"
+
+
+def test_overlay_render_restores_focus_state_after_dom_replacement():
+    src = _overlay_src()
+    render_start = src.find("function render()")
+    assert render_start != -1
+    render_body = src[render_start:]
+    inner_pos = render_body.find("root.innerHTML")
+    restore_pos = render_body.find("restoreFocusState(focusedControl)")
+    assert inner_pos != -1, "root.innerHTML not found in render()"
+    assert restore_pos != -1, "restoreFocusState(focusedControl) call not found in render()"
+    assert restore_pos > inner_pos, "restoreFocusState must come after root.innerHTML replacement"
+
+
+def test_overlay_management_controls_have_focus_keys():
+    overlay = _overlay_src()
+    for key in (
+        'data-focus-key="history-back"',
+        'data-focus-key="build-data-back"',
+        'data-focus-key="my-builds-back"',
+        'data-focus-key="my-builds-enable-toggle"',
+        'data-focus-key="my-builds-add"',
+        'data-focus-key="my-builds-form-save"',
+        'data-focus-key="my-builds-form-cancel"',
+    ):
+        assert key in overlay, f"Missing stable focus key: {key}"
+
+
+def test_overlay_history_rows_are_keyboard_accessible():
+    overlay = _overlay_src()
+    fn_start = overlay.index("function renderHistoryView(")
+    fn_end = overlay.index("function renderBuildDataView(", fn_start)
+    fn_body = overlay[fn_start:fn_end]
+    assert 'tabindex="0"' in fn_body, "history run rows must have tabindex=0"
+    assert 'role="button"' in fn_body, "history run rows must have role=button"
+    assert "data-focus-key" in fn_body, "history run rows must have data-focus-key"
+
+
+def test_overlay_history_rows_focus_key_uses_run_id():
+    overlay = _overlay_src()
+    fn_start = overlay.index("function renderHistoryView(")
+    fn_end = overlay.index("function renderBuildDataView(", fn_start)
+    fn_body = overlay[fn_start:fn_end]
+    assert 'data-focus-key="history-row-${r.id}"' in fn_body
+
+
+def test_overlay_keyboard_activation_ignores_text_entry():
+    overlay = _overlay_src()
+    # The global keydown handler must guard history-row activation behind isTextEditingTarget
+    kd_start = overlay.index("document.addEventListener(\"keydown\"")
+    kd_end = overlay.index("root.addEventListener(\"click\"", kd_start)
+    kd_body = overlay[kd_start:kd_end]
+    assert "isKeyboardActivation(" in kd_body, "keydown handler must use isKeyboardActivation()"
+    assert "isTextEditingTarget(" in kd_body, "keydown handler must guard with isTextEditingTarget()"
+    # Guard must precede history row activation
+    guard_pos = kd_body.index("isTextEditingTarget(")
+    row_pos = kd_body.index("data-history-run-id")
+    assert guard_pos < row_pos, "isTextEditingTarget guard must appear before history-row handling"
+
+
+def test_overlay_f8_handler_remains_global_collapse_shortcut():
+    overlay = _overlay_src()
+    handler_start = overlay.index('if (event.key === "F8")')
+    handler_end = overlay.index("}", handler_start + 1)
+    handler_body = overlay[handler_start:handler_end]
+    assert "event.preventDefault()" in handler_body
+    assert "event.stopPropagation()" in handler_body
+    assert "event.repeat" in handler_body
+    assert "toggleCollapse()" in handler_body
+
+
+def test_overlay_interactive_targets_still_block_drag():
+    overlay = _overlay_src()
+    fn_start = overlay.index("function isInteractiveTarget(")
+    fn_end = overlay.index("}", fn_start)
+    fn_body = overlay[fn_start:fn_end]
+    for selector in ("button", "input", "textarea", "select", "a", "[role='button']", "[data-no-drag='true']", "[tabindex]"):
+        assert selector in fn_body, f"isInteractiveTarget must include selector: {selector}"
+
+
+def test_overlay_capturefocusstate_skips_text_inputs():
+    overlay = _overlay_src()
+    fn_start = overlay.index("function captureFocusState(")
+    fn_end = overlay.index("function restoreFocusState(", fn_start)
+    fn_body = overlay[fn_start:fn_end]
+    assert "isTextEditingTarget(" in fn_body, "captureFocusState must skip text editing targets"
+    assert "focusKey" in fn_body
+
+
+def test_overlay_restorefocusstate_uses_focus_key_selector():
+    overlay = _overlay_src()
+    fn_start = overlay.index("function restoreFocusState(")
+    fn_end = overlay.index("function captureScrollPosition(", fn_start)
+    fn_body = overlay[fn_start:fn_end]
+    assert "data-focus-key" in fn_body, "restoreFocusState must query by data-focus-key"
+    assert "focus(" in fn_body
