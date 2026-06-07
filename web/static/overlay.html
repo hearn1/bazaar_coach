@@ -4535,9 +4535,12 @@
       }
     }
 
-    function _mbHandleItemBlur() {
-      // Delay so mousedown on a suggestion fires before we close
-      setTimeout(closeMyBuildsAutocomplete, 150);
+    function _mbHandleItemBlur(e) {
+      const ta = e.currentTarget;
+      // Delay so mousedown on a suggestion fires before we close.
+      // If ta is no longer in the document, blur was caused by root.innerHTML
+      // replacing the DOM (poll re-render); the render re-opens the dropdown itself.
+      setTimeout(() => { if (document.contains(ta)) closeMyBuildsAutocomplete(); }, 150);
     }
 
     async function submitMyBuildsFormData() {
