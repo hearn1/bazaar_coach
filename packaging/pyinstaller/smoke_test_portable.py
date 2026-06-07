@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -72,11 +73,13 @@ def main() -> int:
             while time.time() < deadline:
                 try:
                     # The localhost dashboard (GET /) was retired in #219; the
-                    # overlay is now the sole user-facing HTML surface.
+                    # overlay is now the sole user-facing HTML surface. Read the
+                    # full body so the per-process CSRF token injected before
+                    # </head> can be extracted for the guarded shutdown POST.
                     with urllib.request.urlopen("http://127.0.0.1:5555/overlay", timeout=1) as response:
                         if response.status != 200:
                             raise RuntimeError(f"overlay returned HTTP {response.status}")
-                        overlay_html = response.read(2048).decode("utf-8", errors="replace")
+                        overlay_html = response.read().decode("utf-8", errors="replace")
                     if "<html" not in overlay_html.lower():
                         raise RuntimeError("overlay HTML did not look like HTML")
                     if "Bazaar Coach" not in overlay_html:
@@ -95,7 +98,20 @@ def main() -> int:
                 print(f"[Smoke] Server did not become ready: {last_error}")
                 return 1
 
-            request = urllib.request.Request("http://127.0.0.1:5555/api/control/shutdown", method="POST")
+            # State-changing routes are guarded by a per-process CSRF token
+            # (X-Bazaar-Coach-Token) injected into the overlay HTML. Extract it
+            # and send it on the shutdown POST; tolerate token-disabled builds.
+            shutdown_headers = {}
+            token_match = re.search(
+                r'window\.BAZAAR_COACH_API_TOKEN\s*=\s*"([^"]+)"', overlay_html
+            )
+            if token_match:
+                shutdown_headers["X-Bazaar-Coach-Token"] = token_match.group(1)
+            request = urllib.request.Request(
+                "http://127.0.0.1:5555/api/control/shutdown",
+                method="POST",
+                headers=shutdown_headers,
+            )
             with urllib.request.urlopen(request, timeout=5) as response:
                 if response.status != 200:
                     print(f"[Smoke] shutdown returned HTTP {response.status}")
