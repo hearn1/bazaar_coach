@@ -1667,6 +1667,7 @@
   <script>
     const root = document.getElementById("root");
     const POLL_MS = 2000;
+    let pendingStateRender = false;
     const MANUAL_ARCH_KEY = "overlay_manual_arch";
 
     function _authHeaders() {
@@ -3268,9 +3269,9 @@
 
     function renderBuildDataView() {
       const heroOptions = browseHeroList.length
-        ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === browseHero ? " selected" : ""}>${escapeHtml(h)}</option>`).join("")
-        : `<option value="${escapeHtml(browseHero)}">${escapeHtml(browseHero || "Loading…")}</option>`;
-      const heroSelect = `<select data-browse-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">${heroOptions}</select>`;
+        ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === browseHero ? " selected" : ""} style="background:#1e1e2e;color:var(--text);">${escapeHtml(h)}</option>`).join("")
+        : `<option value="${escapeHtml(browseHero)}" style="background:#1e1e2e;color:var(--text);">${escapeHtml(browseHero || "Loading…")}</option>`;
+      const heroSelect = `<select data-browse-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-3,#1e1e2e);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">${heroOptions}</select>`;
 
       let catalogHtml = "";
       if (browseCatalogLoading) {
@@ -3319,9 +3320,9 @@
 
     function renderMyBuildsView() {
       const heroOptions = browseHeroList.length
-        ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === myBuildsHero ? " selected" : ""}>${escapeHtml(h.charAt(0).toUpperCase() + h.slice(1))}</option>`).join("")
-        : `<option value="${escapeHtml(myBuildsHero)}">${escapeHtml(myBuildsHero || "Loading…")}</option>`;
-      const heroSelect = `<select data-my-builds-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">${heroOptions}</select>`;
+        ? browseHeroList.map((h) => `<option value="${escapeHtml(h)}"${h === myBuildsHero ? " selected" : ""} style="background:#1e1e2e;color:var(--text);">${escapeHtml(h.charAt(0).toUpperCase() + h.slice(1))}</option>`).join("")
+        : `<option value="${escapeHtml(myBuildsHero)}" style="background:#1e1e2e;color:var(--text);">${escapeHtml(myBuildsHero || "Loading…")}</option>`;
+      const heroSelect = `<select data-my-builds-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-3,#1e1e2e);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">${heroOptions}</select>`;
 
       let contentHtml = "";
       if (myBuildsLoading) {
@@ -3823,18 +3824,29 @@
         resizeGrip.addEventListener("mousedown", beginResize);
       }
 
+      const flushPendingStateRender = () => {
+        if (pendingStateRender) {
+          pendingStateRender = false;
+          render();
+        }
+      };
+
       const browseHeroSelect = root.querySelector("[data-browse-hero-select]");
       if (browseHeroSelect) {
         browseHeroSelect.addEventListener("change", (e) => {
           fetchBrowseCatalog(e.target.value);
+          flushPendingStateRender();
         });
+        browseHeroSelect.addEventListener("blur", flushPendingStateRender);
       }
 
       const myBuildsHeroSelect = root.querySelector("[data-my-builds-hero-select]");
       if (myBuildsHeroSelect) {
         myBuildsHeroSelect.addEventListener("change", (e) => {
           loadMyBuildsData(e.target.value);
+          flushPendingStateRender();
         });
+        myBuildsHeroSelect.addEventListener("blur", flushPendingStateRender);
       }
 
       const acSnapshot = myBuildsAutocomplete.open ? { ...myBuildsAutocomplete } : null;
@@ -4766,6 +4778,11 @@
         lastStateSignature = nextSignature;
       } catch (error) {
         overlayError = error.message || "Unknown overlay error";
+      }
+      const ae = document.activeElement;
+      if (ae && ae.tagName === "SELECT" && root.contains(ae)) {
+        pendingStateRender = true;
+        return;
       }
       render();
     }
