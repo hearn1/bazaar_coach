@@ -3833,6 +3833,7 @@
         });
       }
 
+      const acSnapshot = myBuildsAutocomplete.open ? { ...myBuildsAutocomplete } : null;
       closeMyBuildsAutocomplete();
       root.querySelectorAll("[data-mbf-item-field]").forEach((ta) => {
         ta.addEventListener("input", _mbHandleItemInput);
@@ -3843,6 +3844,17 @@
       attachContentBehaviors();
       restoreFocusedInputState(focusedInput);
       restoreFocusState(focusedControl);
+
+      if (acSnapshot) {
+        const ta = root.querySelector(`[data-mbf-item-field="${acSnapshot.field}"]`);
+        if (ta) {
+          const matches = getAutocompleteMatches(acSnapshot.query);
+          if (matches.length > 0) {
+            myBuildsAutocomplete = { ...acSnapshot };
+            _mbAcRender(ta, matches);
+          }
+        }
+      }
     }
 
     function beginResize(event) {
