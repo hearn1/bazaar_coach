@@ -304,9 +304,7 @@ def test_overlay_render_restores_focus_state_after_dom_replacement():
 def test_overlay_management_controls_have_focus_keys():
     overlay = _overlay_src()
     for key in (
-        'data-focus-key="history-back"',
-        'data-focus-key="build-data-back"',
-        'data-focus-key="my-builds-back"',
+        'data-focus-key="management-back"',
         'data-focus-key="my-builds-enable-toggle"',
         'data-focus-key="my-builds-add"',
         'data-focus-key="my-builds-form-save"',
