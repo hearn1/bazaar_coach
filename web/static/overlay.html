@@ -1747,6 +1747,8 @@
     let myBuildsDeleteConfirm = null; // archetype name awaiting two-step confirm
     let myBuildsFormDraft = {}; // form field values persisted across renders
     let myBuildsFormError = "";
+    let myBuildsItemSuggestions = []; // item names for current hero (autocomplete catalog)
+    let myBuildsAutocomplete = { field: null, query: "", start: 0, end: 0, activeIndex: -1, open: false };
     const MANAGEMENT_TOOLS = [
       { label: "Run History", view: "history" },
       { label: "Browse Builds", view: "build-data" },
@@ -2042,6 +2044,7 @@
       myBuildsDeleteConfirm = null;
       myBuildsFormDraft = {};
       myBuildsFormError = "";
+      closeMyBuildsAutocomplete();
       contentScrollTop = 0;
     }
 
@@ -2058,6 +2061,7 @@
       myBuildsDeleteConfirm = null;
       myBuildsFormDraft = {};
       myBuildsFormError = "";
+      closeMyBuildsAutocomplete();
       contentScrollTop = 0;
       render();
     }
@@ -3396,16 +3400,16 @@
                   <select data-mbf-phase style="${fieldStyle}">${phaseOptions}</select>
                 </label>
                 <label style="font-size:0.78rem;color:var(--muted);">Core Items (comma-separated)
-                  <textarea data-mbf-core_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.core_items))}</textarea>
+                  <textarea data-mbf-core_items data-mbf-item-field="core_items" rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.core_items))}</textarea>
                 </label>
                 <label style="font-size:0.78rem;color:var(--muted);">Carry Items * (comma-separated)
-                  <textarea data-mbf-carry_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.carry_items))}</textarea>
+                  <textarea data-mbf-carry_items data-mbf-item-field="carry_items" rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.carry_items))}</textarea>
                 </label>
                 <label style="font-size:0.78rem;color:var(--muted);">Support Items * (comma-separated)
-                  <textarea data-mbf-support_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.support_items))}</textarea>
+                  <textarea data-mbf-support_items data-mbf-item-field="support_items" rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.support_items))}</textarea>
                 </label>
                 <label style="font-size:0.78rem;color:var(--muted);">Condition Items (comma-separated)
-                  <textarea data-mbf-condition_items rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.condition_items))}</textarea>
+                  <textarea data-mbf-condition_items data-mbf-item-field="condition_items" rows="2" style="${fieldStyle}resize:vertical;">${escapeHtml(joinItems(d.condition_items))}</textarea>
                 </label>
                 <label style="font-size:0.78rem;color:var(--muted);">Timing Profile
                   <select data-mbf-timing_profile style="${fieldStyle}">${timingOptions}</select>
@@ -3829,9 +3833,28 @@
         });
       }
 
+      const acSnapshot = myBuildsAutocomplete.open ? { ...myBuildsAutocomplete } : null;
+      closeMyBuildsAutocomplete();
+      root.querySelectorAll("[data-mbf-item-field]").forEach((ta) => {
+        ta.addEventListener("input", _mbHandleItemInput);
+        ta.addEventListener("keydown", _mbHandleItemKeydown);
+        ta.addEventListener("blur", _mbHandleItemBlur);
+      });
+
       attachContentBehaviors();
       restoreFocusedInputState(focusedInput);
       restoreFocusState(focusedControl);
+
+      if (acSnapshot) {
+        const ta = root.querySelector(`[data-mbf-item-field="${acSnapshot.field}"]`);
+        if (ta) {
+          const matches = getAutocompleteMatches(acSnapshot.query);
+          if (matches.length > 0) {
+            myBuildsAutocomplete = { ...acSnapshot };
+            _mbAcRender(ta, matches);
+          }
+        }
+      }
     }
 
     function beginResize(event) {
@@ -4327,9 +4350,12 @@
     async function loadMyBuildsData(hero) {
       if (!hero) return;
       myBuildsHero = hero;
+      myBuildsItemSuggestions = [];
+      closeMyBuildsAutocomplete();
       myBuildsLoading = true;
       myBuildsError = "";
       render();
+      loadMyBuildsItemSuggestions(hero); // fire-and-forget; failure is silent
       try {
         const resp = await fetch(`/api/builds/user/${encodeURIComponent(hero)}`, { cache: "no-store" });
         if (!resp.ok) throw new Error(`status ${resp.status}`);
@@ -4344,6 +4370,177 @@
 
     function _mbSplitItems(str) {
       return String(str || "").split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    function extractItemNamesFromBuildPayload(payload) {
+      const seen = new Set();
+      const names = [];
+      const addItems = (arr) => {
+        if (!Array.isArray(arr)) return;
+        for (const s of arr) {
+          const t = String(s || "").trim();
+          if (t && !seen.has(t.toLowerCase())) {
+            seen.add(t.toLowerCase());
+            names.push(t);
+          }
+        }
+      };
+      for (const arch of (payload?.archetypes || [])) {
+        addItems(arch.core_items);
+        addItems(arch.carry_items);
+        addItems(arch.support_items);
+        addItems(arch.condition_items);
+      }
+      for (const arr of Object.values(payload?.item_tier_list || {})) {
+        addItems(arr);
+      }
+      return names.sort((a, b) => a.localeCompare(b));
+    }
+
+    async function loadMyBuildsItemSuggestions(hero) {
+      if (!hero) { myBuildsItemSuggestions = []; return; }
+      try {
+        const resp = await fetch(`/api/builds/archetypes/${encodeURIComponent(hero)}`, { cache: "no-store" });
+        if (!resp.ok) throw new Error(`status ${resp.status}`);
+        myBuildsItemSuggestions = extractItemNamesFromBuildPayload(await resp.json());
+      } catch (_) {
+        myBuildsItemSuggestions = [];
+      }
+    }
+
+    function getCurrentCommaToken(textarea) {
+      const val = textarea.value;
+      const pos = textarea.selectionStart || 0;
+      let start = pos;
+      while (start > 0 && val[start - 1] !== ",") start--;
+      // skip leading whitespace in the token
+      while (start < pos && val[start] === " ") start++;
+      let end = pos;
+      while (end < val.length && val[end] !== ",") end++;
+      const query = val.slice(start, end).trimEnd();
+      return { start, end, query };
+    }
+
+    function getAutocompleteMatches(query) {
+      if (!query) return [];
+      const q = query.toLowerCase();
+      const prefix = [], sub = [];
+      for (const name of myBuildsItemSuggestions) {
+        const n = name.toLowerCase();
+        if (n.startsWith(q)) prefix.push(name);
+        else if (n.includes(q)) sub.push(name);
+      }
+      return [...prefix, ...sub].slice(0, 10);
+    }
+
+    function _mbAcDropdown() {
+      let el = document.getElementById("mb-ac-dropdown");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "mb-ac-dropdown";
+        el.style.cssText = [
+          "position:fixed",
+          "z-index:99999",
+          "background:var(--panel-3,#1e1e2e)",
+          "border:1px solid var(--border,#444)",
+          "border-radius:4px",
+          "box-shadow:0 4px 12px rgba(0,0,0,0.6)",
+          "max-height:200px",
+          "overflow-y:auto",
+          "min-width:160px",
+          "display:none",
+          "font-family:var(--body,'DM Sans',sans-serif)",
+        ].join(";");
+        document.body.appendChild(el);
+      }
+      return el;
+    }
+
+    function closeMyBuildsAutocomplete() {
+      myBuildsAutocomplete.open = false;
+      myBuildsAutocomplete.field = null;
+      const el = document.getElementById("mb-ac-dropdown");
+      if (el) el.style.display = "none";
+    }
+
+    function _mbAcAccept(textarea, suggestion) {
+      const val = textarea.value;
+      const { start, end } = myBuildsAutocomplete;
+      textarea.value = val.slice(0, start) + suggestion + val.slice(end);
+      const newPos = start + suggestion.length;
+      textarea.setSelectionRange(newPos, newPos);
+      closeMyBuildsAutocomplete();
+      captureMyBuildsFormValues();
+    }
+
+    function _mbAcRender(textarea, matches) {
+      const dropdown = _mbAcDropdown();
+      if (!matches.length) {
+        dropdown.style.display = "none";
+        return;
+      }
+      const rect = textarea.getBoundingClientRect();
+      dropdown.style.left = `${rect.left}px`;
+      dropdown.style.top = `${rect.bottom + 2}px`;
+      dropdown.style.width = `${rect.width}px`;
+      dropdown.style.display = "block";
+      dropdown.innerHTML = matches.map((name, i) => {
+        const active = i === myBuildsAutocomplete.activeIndex;
+        const bg = active ? "var(--amber,#f5a623)" : "transparent";
+        const col = active ? "var(--bg,#0e0e1a)" : "var(--text,#e0e0f0)";
+        return `<div style="padding:5px 10px;cursor:pointer;font-size:0.8rem;background:${bg};color:${col};" data-mb-ac-idx="${i}">${escapeHtml(name)}</div>`;
+      }).join("");
+      dropdown.onmousedown = (e) => {
+        const item = e.target.closest("[data-mb-ac-idx]");
+        if (!item) return;
+        e.preventDefault(); // prevent blur on textarea before mouseup
+        const suggestion = matches[parseInt(item.dataset.mbAcIdx, 10)];
+        const ta = root.querySelector(`[data-mbf-item-field="${myBuildsAutocomplete.field}"]`);
+        if (ta && suggestion) _mbAcAccept(ta, suggestion);
+      };
+    }
+
+    function _mbHandleItemInput(e) {
+      const textarea = e.currentTarget;
+      const { start, end, query } = getCurrentCommaToken(textarea);
+      const matches = query.length >= 1 ? getAutocompleteMatches(query) : [];
+      myBuildsAutocomplete = {
+        field: textarea.dataset.mbfItemField,
+        query, start, end,
+        activeIndex: -1,
+        open: matches.length > 0,
+      };
+      _mbAcRender(textarea, matches);
+      captureMyBuildsFormValues();
+    }
+
+    function _mbHandleItemKeydown(e) {
+      if (!myBuildsAutocomplete.open) return;
+      const textarea = e.currentTarget;
+      const matches = getAutocompleteMatches(myBuildsAutocomplete.query);
+      if (!matches.length) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        myBuildsAutocomplete.activeIndex = Math.min(myBuildsAutocomplete.activeIndex + 1, matches.length - 1);
+        _mbAcRender(textarea, matches);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        myBuildsAutocomplete.activeIndex = Math.max(myBuildsAutocomplete.activeIndex - 1, 0);
+        _mbAcRender(textarea, matches);
+      } else if ((e.key === "Enter" || e.key === "Tab") && myBuildsAutocomplete.activeIndex >= 0) {
+        e.preventDefault();
+        _mbAcAccept(textarea, matches[myBuildsAutocomplete.activeIndex]);
+      } else if (e.key === "Escape") {
+        closeMyBuildsAutocomplete();
+      }
+    }
+
+    function _mbHandleItemBlur(e) {
+      const ta = e.currentTarget;
+      // Delay so mousedown on a suggestion fires before we close.
+      // If ta is no longer in the document, blur was caused by root.innerHTML
+      // replacing the DOM (poll re-render); the render re-opens the dropdown itself.
+      setTimeout(() => { if (document.contains(ta)) closeMyBuildsAutocomplete(); }, 150);
     }
 
     async function submitMyBuildsFormData() {
