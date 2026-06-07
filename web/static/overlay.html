@@ -3179,7 +3179,7 @@
           const pvp = `${r.pvp_wins ?? 0}W/${r.pvp_losses ?? 0}L`;
           const selected = r.id === historyState.selectedRunId;
           return `
-            <div class="history-run-row${selected ? " active" : ""}" data-history-run-id="${r.id}">
+            <div class="history-run-row${selected ? " active" : ""}" data-history-run-id="${r.id}" data-focus-key="history-row-${r.id}" tabindex="0" role="button">
               <span class="history-run-id">#${r.id}</span>
               <span class="history-run-hero">${escapeHtml(r.hero || "?")}</span>
               ${r.archetype ? `<span class="history-run-arch">${escapeHtml(r.archetype)}</span>` : `<span class="history-run-arch"></span>`}
@@ -3199,7 +3199,7 @@
           <div class="section-kicker">Browse</div>
           <div class="hero-row" style="align-items:center;margin-bottom:10px;">
             <h2 class="hero-name" style="margin:0;">Run History</h2>
-            <button class="header-action" type="button" data-history-back="true">Back</button>
+            <button class="header-action" type="button" data-history-back="true" data-focus-key="history-back">Back</button>
           </div>
         </section>
         <section class="section">
@@ -3242,7 +3242,7 @@
           <div class="section-kicker">Browse</div>
           <div class="hero-row" style="align-items:center;margin-bottom:10px;">
             <h2 class="hero-name" style="margin:0;">Build Catalog</h2>
-            <button class="header-action" type="button" data-build-data-back="true">Back</button>
+            <button class="header-action" type="button" data-build-data-back="true" data-focus-key="build-data-back">Back</button>
           </div>
           <select data-browse-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">
             ${heroOptions}
@@ -3286,7 +3286,7 @@
         const provRow = prov.user_file_exists
           ? `<div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                <span>${escapeHtml(prov.filename || "")}</span>
-               <button class="header-action" type="button" style="font-size:0.7rem;padding:2px 8px;" data-my-builds-toggle-enabled="${!enabled}">${enabled ? "Disable" : "Enable"}</button>
+               <button class="header-action" type="button" style="font-size:0.7rem;padding:2px 8px;" data-my-builds-toggle-enabled="${!enabled}" data-focus-key="my-builds-enable-toggle">${enabled ? "Disable" : "Enable"}</button>
              </div>`
           : `<div style="font-size:0.75rem;color:var(--muted-2);margin-bottom:8px;">No user catalog yet. Add an archetype to create one.</div>`;
 
@@ -3374,8 +3374,8 @@
               </div>
               ${myBuildsFormError ? `<div style="color:var(--red);font-size:0.8rem;margin-top:6px;">${escapeHtml(myBuildsFormError)}</div>` : ""}
               <div style="display:flex;gap:8px;margin-top:10px;">
-                <button class="header-action" type="button" data-my-builds-form-save="true">Save</button>
-                <button class="header-action" type="button" data-my-builds-form-cancel="true">Cancel</button>
+                <button class="header-action" type="button" data-my-builds-form-save="true" data-focus-key="my-builds-form-save">Save</button>
+                <button class="header-action" type="button" data-my-builds-form-cancel="true" data-focus-key="my-builds-form-cancel">Cancel</button>
               </div>
             </div>`;
         }
@@ -3384,7 +3384,7 @@
           <section class="section">
             ${provRow}
             ${archsHtml}
-            ${!myBuildsFormOpen ? `<button class="header-action" type="button" style="margin-top:8px;" data-my-builds-add="true">+ Add Archetype</button>` : ""}
+            ${!myBuildsFormOpen ? `<button class="header-action" type="button" style="margin-top:8px;" data-my-builds-add="true" data-focus-key="my-builds-add">+ Add Archetype</button>` : ""}
             ${formHtml}
           </section>`;
       }
@@ -3394,7 +3394,7 @@
           <div class="section-kicker">My Builds</div>
           <div class="hero-row" style="align-items:center;margin-bottom:10px;">
             <h2 class="hero-name" style="margin:0;">Edit Builds</h2>
-            <button class="header-action" type="button" data-my-builds-back="true">Back</button>
+            <button class="header-action" type="button" data-my-builds-back="true" data-focus-key="my-builds-back">Back</button>
           </div>
           <select data-my-builds-hero-select style="width:100%;font-family:var(--body);font-size:13px;padding:5px 8px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">
             ${heroOptions}
@@ -3591,6 +3591,22 @@
       if (snapshot.scrollLeft) el.scrollLeft = snapshot.scrollLeft;
     }
 
+    function captureFocusState() {
+      const el = document.activeElement;
+      if (!el || !root.contains(el)) return null;
+      if (isTextEditingTarget(el)) return null;
+      const focusKey = el.dataset && el.dataset.focusKey;
+      if (!focusKey) return null;
+      return { focusKey };
+    }
+
+    function restoreFocusState(state) {
+      if (!state || !state.focusKey) return;
+      const el = root.querySelector(`[data-focus-key="${state.focusKey}"]`);
+      if (!el || el.disabled) return;
+      try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_2) {} }
+    }
+
     function captureScrollPosition() {
       const content = root.querySelector(".content");
       if (content) {
@@ -3730,6 +3746,7 @@
       }
 
       const focusedInput = captureFocusedInputState();
+      const focusedControl = captureFocusState();
       captureScrollPosition();
       captureReportIssueFormValues();
       captureMyBuildsFormValues();
@@ -3790,6 +3807,7 @@
 
       attachContentBehaviors();
       restoreFocusedInputState(focusedInput);
+      restoreFocusState(focusedControl);
     }
 
     function beginResize(event) {
@@ -3834,8 +3852,20 @@
 
     function isInteractiveTarget(target) {
       return Boolean(target && target.closest(
-        "button, input, textarea, select, a, [role='button'], [data-no-drag='true']"
+        "button, input, textarea, select, a, [role='button'], [data-no-drag='true'], [tabindex]"
       ));
+    }
+
+    function isTextEditingTarget(target) {
+      if (!target) return false;
+      const tag = target.tagName ? target.tagName.toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (target.isContentEditable) return true;
+      return false;
+    }
+
+    function isKeyboardActivation(event) {
+      return event.key === "Enter" || event.key === " ";
     }
 
     function beginMove(event) {
@@ -4591,6 +4621,19 @@
         event.stopPropagation();
         if (!event.repeat) {
           toggleCollapse();
+        }
+        return;
+      }
+      if (isKeyboardActivation(event) && !isTextEditingTarget(event.target)) {
+        const historyRow = event.target.closest("[data-history-run-id]");
+        if (historyRow && root.contains(historyRow)) {
+          event.preventDefault();
+          const runId = parseInt(historyRow.dataset.historyRunId, 10);
+          if (!isNaN(runId)) {
+            historyState = { ...historyState, selectedRunId: runId };
+            render();
+          }
+          return;
         }
       }
     });
