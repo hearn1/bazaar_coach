@@ -118,6 +118,10 @@ coach.py                   # entrypoint - launches the subsystems below
 
 > Capture Mono debugging notes (dict layouts, mid-run pickup gaps, FAST_GAMESIM_PATH): see [docs/mono-internals.md](docs/mono-internals.md).
 
+## GitHub OAuth
+
+Bazaar Coach does **not** use a GitHub OAuth App today. Update checks use the public GitHub Releases API (no auth). Issue reporting opens a prefilled browser URL — no API call is made by the app. Do not commit OAuth client secrets; do not bundle them into installer or portable builds. If OAuth-backed issue creation is ever implemented, preserve the unauthenticated browser-URL fallback. See [docs/GITHUB_OAUTH_APP.md](docs/GITHUB_OAUTH_APP.md) for the full OAuth contract.
+
 ## Catalog curation
 
 Hero catalogs (`<hero>_builds.json` + `builds_schema.json`) live in this repo and ship with the installer. Users run `coach.py refresh-builds` to pull latest catalogs into the writable data dir; malformed refreshed catalogs are ignored in favor of bundled.

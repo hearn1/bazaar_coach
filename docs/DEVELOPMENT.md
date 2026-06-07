@@ -155,6 +155,10 @@ coach.py                   # single entrypoint
 
 `CLAUDE.md` carries the deeper architecture / data-flow / quirk notes for contributors and AI assistants.
 
+### GitHub OAuth App
+
+Issue reporting opens a prefilled GitHub issue in the browser — no OAuth required. For information on GitHub OAuth App configuration (update-check rate limits, future direct issue submission, secret handling), see [GITHUB_OAUTH_APP.md](GITHUB_OAUTH_APP.md).
+
 ### Packaging
 
 Portable build:

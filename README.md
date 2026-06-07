@@ -63,6 +63,8 @@ If something goes wrong, the single most useful file to share is the latest sess
 
 Each launch writes a fresh `coach_<timestamp>.log`. Grab the most recent one and attach it when filing an issue at <https://github.com/hearn1/bazaar_coach/issues>.
 
+Issue reporting opens a prefilled GitHub issue in your browser — no in-app authentication is required. For contributors and release maintainers interested in OAuth App configuration, see [docs/GITHUB_OAUTH_APP.md](docs/GITHUB_OAUTH_APP.md).
+
 You can also re-run diagnostics on demand from the install directory:
 
 ```powershell
