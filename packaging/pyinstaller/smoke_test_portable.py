@@ -71,19 +71,17 @@ def main() -> int:
             last_error = None
             while time.time() < deadline:
                 try:
-                    with urllib.request.urlopen("http://127.0.0.1:5555/", timeout=1) as response:
-                        if response.status != 200:
-                            raise RuntimeError(f"index returned HTTP {response.status}")
-                        index_html = response.read(512).decode("utf-8", errors="replace")
+                    # The localhost dashboard (GET /) was retired in #219; the
+                    # overlay is now the sole user-facing HTML surface.
                     with urllib.request.urlopen("http://127.0.0.1:5555/overlay", timeout=1) as response:
                         if response.status != 200:
                             raise RuntimeError(f"overlay returned HTTP {response.status}")
-                        overlay_html = response.read(512).decode("utf-8", errors="replace")
-                    if "Bazaar Coach" not in index_html:
-                        raise RuntimeError("index HTML did not look like Bazaar Coach")
+                        overlay_html = response.read(2048).decode("utf-8", errors="replace")
                     if "<html" not in overlay_html.lower():
                         raise RuntimeError("overlay HTML did not look like HTML")
-                    print("[Smoke] Packaged dashboard and overlay HTML loaded.")
+                    if "Bazaar Coach" not in overlay_html:
+                        raise RuntimeError("overlay HTML did not look like Bazaar Coach")
+                    print("[Smoke] Packaged overlay HTML loaded.")
                     break
                 except Exception as exc:
                     last_error = exc
