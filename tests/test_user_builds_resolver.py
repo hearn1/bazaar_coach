@@ -273,3 +273,59 @@ def test_invalidate_catalog_cache_clears_scorer_cache(tmp_path, monkeypatch):
 
     builds_after = scorer.load_builds("Karnok")
     assert builds_after["last_updated"] == "user_new"
+
+
+def test_run_init_clears_stale_subprocess_catalog_cache(tmp_path, monkeypatch):
+    """Regression for #255: a run started after a My Builds toggle must re-read
+    the catalog.
+
+    RunState/LiveScorer run in the capture_mono subprocess, which never receives
+    the Flask process's invalidate_catalog_cache() signal after an enable/disable.
+    So _try_init_run must clear the scorer cache itself; otherwise the new run
+    scores against the catalog cached on an earlier run and bakes a stale
+    "Not in <hero> catalog" note onto the decision rows.
+    """
+    import db
+    from run_state import RunState
+
+    bundled_dir = tmp_path / "bundled"
+    bundled_dir.mkdir()
+    (bundled_dir / "karnok_builds.json").write_text(
+        json.dumps(_catalog("Karnok", last_updated="bundled")),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("BAZAAR_COACH_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(scorer, "BUILD_GUIDE_DIR", bundled_dir)
+    monkeypatch.setattr(scorer, "validate_builds_catalog", lambda data: (True, ""))
+
+    db_path = tmp_path / "bazaar_runs.db"
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    db.close_shared_conn()
+    db.init_db()
+
+    # Prime the subprocess scorer cache with the bundled catalog, simulating an
+    # earlier run that scored before My Builds was created.
+    assert scorer.load_builds("Karnok")["last_updated"] == "bundled"
+
+    # User creates+enables a My Builds catalog on disk. The Flask route cleared
+    # only its own process cache; the subprocess cache here is still stale.
+    user_dir = tmp_path / "user_builds"
+    user_dir.mkdir(exist_ok=True)
+    (user_dir / "karnok_user.json").write_text(
+        json.dumps(_catalog("Karnok", last_updated="user_new")),
+        encoding="utf-8",
+    )
+    assert scorer.load_builds("Karnok")["last_updated"] == "bundled"  # still stale
+
+    # A new run starts in the subprocess. _try_init_run must clear the cache and
+    # build a LiveScorer against the fresh user catalog. hero is sent before
+    # account_id because _try_init_run fires on the account_id event.
+    state = RunState()
+    state.process({"event": "run_start", "ts": "10:00"})
+    state.process({"event": "session_id", "ts": "10:00", "session_id": "session-1"})
+    state.process({"event": "hero", "ts": "10:00", "hero": "Karnok"})
+    state.process({"event": "account_id", "ts": "10:00", "account_id": "account-1"})
+
+    assert state._live_scorer is not None
+    assert state._live_scorer.builds["last_updated"] == "user_new"
