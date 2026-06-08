@@ -206,3 +206,91 @@ def test_close_management_view_for_live_run_resets_all_form_state():
     assert "contentScrollTop = 0" in fn, "closeManagementViewForLiveRun must reset contentScrollTop"
     for field in ("myBuildsFormOpen", "myBuildsFormData", "myBuildsDeleteConfirm", "myBuildsFormDraft", "myBuildsFormError"):
         assert field in fn, f"closeManagementViewForLiveRun must reset {field}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #252: stale build catalog after My Builds mutations
+# ---------------------------------------------------------------------------
+
+def test_fetch_build_catalog_accepts_force_option():
+    """fetchBuildCatalog signature must include a { force = false } destructured option."""
+    src = _overlay_src()
+    decl = "async function fetchBuildCatalog(hero, { force = false } = {}) {"
+    assert decl in src, "fetchBuildCatalog must accept a { force = false } option"
+
+
+def test_fetch_build_catalog_force_bypasses_cache_guard():
+    """When force=true the early-return cache guard must be skipped (guard is inside !force &&)."""
+    src = _overlay_src()
+    fn = _fn_body(src, "async function fetchBuildCatalog(hero, { force = false } = {}) {", "async function ensureCatalogMatchesState(")
+    assert "!force &&" in fn, "fetchBuildCatalog must guard the early-return with !force &&"
+
+
+def test_ensure_catalog_matches_state_exists_and_calls_force_fetch():
+    """ensureCatalogMatchesState must exist and call fetchBuildCatalog with force: true."""
+    src = _overlay_src()
+    fn = _fn_body(src, "async function ensureCatalogMatchesState(", "async function fetchBrowseHeroList(")
+    assert "fetchBuildCatalog(" in fn, "ensureCatalogMatchesState must call fetchBuildCatalog"
+    assert "force: true" in fn, "ensureCatalogMatchesState must pass force: true"
+
+
+def test_fetch_state_calls_ensure_catalog_matches_state():
+    """fetchState must call ensureCatalogMatchesState after loading the build catalog."""
+    src = _overlay_src()
+    fn = _fn_body(src, "async function fetchState() {", "async function startPolling(")
+    assert "ensureCatalogMatchesState(" in fn, (
+        "fetchState must call ensureCatalogMatchesState to detect catalog/server mismatch"
+    )
+    catalog_pos = fn.index("fetchBuildCatalog(")
+    ensure_pos = fn.index("ensureCatalogMatchesState(")
+    assert catalog_pos < ensure_pos, "fetchState must call ensureCatalogMatchesState after fetchBuildCatalog"
+
+
+def test_toggle_my_builds_force_refreshes_catalog():
+    """toggleMyBuildsEnabledState must call fetchBuildCatalog with force: true after loadMyBuildsData."""
+    src = _overlay_src()
+    fn = _fn_body(src, "async function toggleMyBuildsEnabledState(", "async function openBuildDataView(")
+    assert "fetchBuildCatalog(myBuildsHero, { force: true })" in fn, (
+        "toggleMyBuildsEnabledState must force-refresh the build catalog after enable/disable"
+    )
+    load_pos = fn.index("loadMyBuildsData(")
+    force_pos = fn.index("fetchBuildCatalog(myBuildsHero, { force: true })")
+    assert load_pos < force_pos, "force-refresh must happen after loadMyBuildsData"
+
+
+def test_submit_my_builds_form_force_refreshes_catalog():
+    """submitMyBuildsFormData must call fetchBuildCatalog with force: true on success."""
+    src = _overlay_src()
+    fn = _fn_body(src, "async function submitMyBuildsFormData() {", "async function deleteMyBuildsArchetypeConfirmed(")
+    assert "fetchBuildCatalog(myBuildsHero, { force: true })" in fn, (
+        "submitMyBuildsFormData must force-refresh the build catalog after a successful save"
+    )
+
+
+def test_delete_my_builds_force_refreshes_catalog():
+    """deleteMyBuildsArchetypeConfirmed must call fetchBuildCatalog with force: true on success."""
+    src = _overlay_src()
+    fn = _fn_body(src, "async function deleteMyBuildsArchetypeConfirmed(", "async function toggleMyBuildsEnabledState(")
+    assert "fetchBuildCatalog(myBuildsHero, { force: true })" in fn, (
+        "deleteMyBuildsArchetypeConfirmed must force-refresh the build catalog after a successful delete"
+    )
+
+
+def test_get_active_coach_confidence_uses_active_arch_score():
+    """getActiveCoach must derive confidence from the displayed activeArch's own score, not always arch_scores[0]."""
+    src = _overlay_src()
+    fn = _fn_body(src, "function getActiveCoach(state) {", "function getTier(")
+    assert "findScoreForArch(" in fn, (
+        "getActiveCoach must call findScoreForArch to tie confidence to the displayed activeArch"
+    )
+    assert "arch_scores?.[0]?.raw_score" not in fn, (
+        "getActiveCoach must not blindly read arch_scores[0] for confidence"
+    )
+
+
+def test_find_score_for_arch_exists_and_looks_up_by_name():
+    """findScoreForArch helper must exist and look up a named entry in arch_scores."""
+    src = _overlay_src()
+    fn = _fn_body(src, "function findScoreForArch(state, archName) {", "function getActiveCoach(")
+    assert "arch_scores" in fn, "findScoreForArch must search state.arch_scores"
+    assert "archName" in fn, "findScoreForArch must filter by archName"

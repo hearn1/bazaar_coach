@@ -2137,20 +2137,26 @@
       return getArchetype(best.name) || null;
     }
 
+    function findScoreForArch(state, archName) {
+      if (!archName) return 0;
+      const entry = (state?.arch_scores || []).find((e) => e.name === archName);
+      return entry?.raw_score ?? entry?.score ?? 0;
+    }
+
     function getActiveCoach(state) {
       const ownedNames = getOwnedNames(state);
       const manualName = getManualArch();
       const manualArch = manualName ? getArchetype(manualName) : null;
       const autoArch = getTopAuto(state);
       const activeArch = manualArch || autoArch || buildCatalog.archetypes[0] || EMPTY_ARCH;
-      const autoScore = state?.arch_scores?.[0]?.raw_score ?? state?.arch_scores?.[0]?.score ?? 0;
+      const confidence = findScoreForArch(state, activeArch?.name);
 
       return {
         ownedNames,
         activeArch,
         manualArch,
         isManual: Boolean(manualArch),
-        confidence: autoScore,
+        confidence,
         autoArch,
       };
     }
@@ -4242,12 +4248,13 @@
       }
     }
 
-    async function fetchBuildCatalog(hero) {
+    async function fetchBuildCatalog(hero, { force = false } = {}) {
       const requestedHero = String(hero || "").trim();
       if (!requestedHero) {
         return buildCatalog;
       }
       if (
+        !force &&
         buildCatalogReady &&
         !buildCatalogError &&
         buildCatalog.hero === requestedHero
@@ -4298,6 +4305,12 @@
       }
       render();
       return buildCatalog;
+    }
+
+    async function ensureCatalogMatchesState(state) {
+      const topName = state?.arch_scores?.[0]?.name;
+      if (!topName || getArchetype(topName)) return;
+      await fetchBuildCatalog(state.hero, { force: true });
     }
 
     async function fetchBrowseHeroList() {
@@ -4598,6 +4611,7 @@
         myBuildsFormDraft = {};
         myBuildsFormError = "";
         render();
+        await fetchBuildCatalog(myBuildsHero, { force: true });
       } catch (e) {
         myBuildsFormError = `Save failed: ${e.message}`;
         render();
@@ -4620,6 +4634,7 @@
         }
         myBuildsData = data;
         render();
+        await fetchBuildCatalog(myBuildsHero, { force: true });
       } catch (e) {
         myBuildsError = `Delete failed: ${e.message}`;
         render();
@@ -4636,6 +4651,7 @@
         });
         if (!resp.ok) throw new Error(`status ${resp.status}`);
         await loadMyBuildsData(myBuildsHero);
+        await fetchBuildCatalog(myBuildsHero, { force: true });
       } catch (e) {
         myBuildsError = `Toggle failed: ${e.message}`;
         render();
@@ -4735,6 +4751,7 @@
         const nextHero = String(nextState?.hero || "").trim();
         if (nextHero) {
           await fetchBuildCatalog(nextHero);
+          await ensureCatalogMatchesState(nextState);
         }
         const nextSignature = JSON.stringify(nextState);
         const hadError = Boolean(overlayError);
