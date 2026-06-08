@@ -360,6 +360,13 @@ class RunState:
         # opened here only briefly for the scorer's DB queries; the scorer
         # subsequently fires score writes through db.update_decision_score which
         # uses the background writer queue (fire-and-forget, no blocking I/O).
+        #
+        # RunState/LiveScorer live in the capture_mono subprocess, which never
+        # receives the Flask process's invalidate_catalog_cache() signal after a
+        # My Builds enable/disable. Clear the catalog cache here so each new run
+        # re-reads the latest user catalog state from disk rather than scoring
+        # against a stale catalog cached on an earlier run (#255).
+        _scorer._load_builds_cached.cache_clear()
         try:
             _conn = db.get_conn()
             self._live_scorer = _scorer.LiveScorer(self.hero, _conn)
